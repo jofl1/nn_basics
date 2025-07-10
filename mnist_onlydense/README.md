@@ -30,19 +30,10 @@ The implementation is structured in an object-oriented manner, with distinct cla
 
 4.  **Testing**: The `test_network()` function evaluates the final performance of the trained network on the unseen test set. It also provides a visual example of a prediction, showing the input image, the true label, the predicted label, and a bar chart of the network's output logits.
 
-## Usage
-
-To run the script, simply execute it from your terminal:
-
-```bash
-python mnist_dense.py
-```
-
-The script will automatically load the data, train the network, and then test it. The training progress, including the accuracy on the training and validation sets, will be printed to the console for each epoch. Finally, the test accuracy will be displayed, along with a plot showing a random test image and the network's prediction.
 
 ## Architectures
 
-The script defines two network architectures, "Agrawal" and "Josh", which can be easily selected by changing the `selected_architecture` variable. This allows for experimentation with different network depths and layer sizes.
+The script defines two network architectures, "Agrawal" and "Josh", which can be easily selected by changing the `selected_architecture` variable. This allows for experimentation with different network depths and layer sizes. Similairly new architectures can be added in to test and compare results
 
 ### Agrawal
 *   Dense(784, 100) -> ReLU
@@ -55,8 +46,3 @@ The script defines two network architectures, "Agrawal" and "Josh", which can be
 *   Dense(400, 100) -> ReLU
 *   Dense(100, 10)
 
-## Dependencies
-
-*   [NumPy](https://numpy.org/)
-*   [Keras](https://keras.io/) (for dataset loading)
-*   [Matplotlib](https://matplotlib.org/)
