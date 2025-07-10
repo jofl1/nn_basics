@@ -29,7 +29,7 @@ class ReLU(Layer):      # Applies f(x) = max(0, x) element-wise
         
 class Dense(Layer):
     
-    def __init__(self, input_units, output_units, learning_rate = 0.1):     # Input_units: number of features in input data - i.e 28x28 -> 784
+    def __init__(self, input_units, output_units, learning_rate):     # Input_units: number of features in input data - i.e 28x28 -> 784
                                                                             # Output_units: Int showing number of neurons in layer
         
         self.learning_rate = learning_rate
@@ -117,19 +117,21 @@ class NeuralNetwork:        # Capture networks state (layers) amd behaviour( tra
         
         return logits.argmax(axis=-1)   # Finds index of the highest score for each input sample
     
-    def train_batch(self, inputs, targets):     # Performs a single forward and backward pass for one batch of data to update network weights.
+    def train_batch(self, inputs, targets):     # Performs a single forward and backward pass for one batch of data to update network weights. 
+                                                # inputs: shape (batch_size , 784) - batch_size flattened images
+                                                # targets: shape (batch_size,) - true labels [3, 7, 2, 9, ...]
             
             # Forward pass
-            activations = self.forward(inputs)                  # Propagates input through the network, collecting outputs from all layers
-            layer_inputs = [inputs] + activations             # Concatenates the initial input with layer activations to get a list of inputs for each layer
+            activations = self.forward(inputs)                  # Propagates input through the network, collecting outputs from all layers - returns a list of outputs
+            layer_inputs = [inputs] + activations             # Concatenates the initial input with layer activations to get a list of inputs for each layer, for backpropagation, each layer needs to know what its input was to calculate gradients. 
             logits = activations[-1]                          # The raw output scores from the final layer, before any activation function 
             
             # Calculate loss and its initial gradient
-            loss = Loss.softmax_crossentropy_with_logits(logits, targets)           # Computes the cross-entropy loss for each sample in the batch
+            loss = Loss.softmax_crossentropy_with_logits(logits, targets)           # Computes the loss for each sample in the batch
             loss_grad = Loss.grad_softmax_crossentropy_with_logits(logits, targets) # Computes the gradient of the loss w.r.t the logits, the starting point for backpropagation
             
             # Backward pass
-            for layer_index in range(len(self.layers))[::-1]:     # Iterates backward through the layers, from the output layer to the input layer
+            for layer_index in range(len(self.layers))[::-1]:     # Iterates backward through the layers, from the output layer to the input layer.[::1] reverses range
                 layer = self.layers[layer_index]                  # Selects the current layer to process
                 layer_input = layer_inputs[layer_index]           # Retrieves the input that was fed to this layer during the forward pass
                 
@@ -184,7 +186,7 @@ def train_network(network, X_train, y_train, X_val, y_val, epochs=25, batch_size
     
     for epoch in range(epochs): # An epoch is one full pass through the entire training dataset
         
-        for x_batch, y_batch in iterate_minibatches(X_train, y_train, batch_size, shuffle=True):
+        for x_batch, y_batch in iterate_minibatches(X_train, y_train, batch_size, shuffle=True):    # x_batch: array shape (batch_size, 784) - random training images, y_batch: array shape (batch_size,) - their labels
             network.train_batch(x_batch, y_batch)     # Performs a training step (forward/backward pass) on the minibatch
         
         # Calculate and record accuracy at the end of each epoch
@@ -230,7 +232,7 @@ def test_network(network, X_test, y_test, show_example=True):     # Evaluates th
     
     plt.tight_layout()
     
-    print(f"Logits: {np.round(logits, 2)}")     # Prints the raw output scores for each class, rounded for readability
+    print(f"Logits: {logits}")     # Prints the raw output scores for each class, rounded for readability
     print(f"True label: {true_label}, Predicted: {predicted_label}")
 
     return accuracy
@@ -244,23 +246,33 @@ print(f"Data loaded: {X_train.shape[0]} training, {X_val.shape[0]} validation, {
 # Define different network layer configurations in a dictionary for easy experimentation
 architectures = {
     "Agrawal": [
-        Dense(784, 100),    # ie accept an input vector of size 784 (28x28) and output a vector of size 100
+        Dense(784, 100, 0.1),    # ie accept an input vector of size 784 (28x28) and output a vector of size 100. self.weights is array of (784,100), self.biases is (100,0)
         ReLU(),
-        Dense(100, 200),
+        Dense(100, 200, 0.2),
         ReLU(),
-        Dense(200, 10)
+        Dense(200, 10, 0.1)
+    ],
+    
+    "Josh": [
+        Dense(784, 200, 0.1),
+        ReLU(),
+        Dense(200, 400, 0.2),
+        ReLU(),
+        Dense(400, 100, 0.1),
+        ReLU(),
+        Dense(100, 10, 0.2)
     ]
 }
 
-selected_architecture = "Agrawal"
+selected_architecture = "Josh"
 
 # Create, train, and test the network
 print(f"\nTraining {selected_architecture} network")
-model = NeuralNetwork(architectures[selected_architecture])   # Instantiates the network with the chosen set of layers
-train_log, val_log = train_network(model, X_train, y_train, X_val, y_val, epochs=10)
+model = NeuralNetwork(architectures[selected_architecture])   # Instantiates the network with the chosen set of layers, ie creates neural network object and self.layer is list containing x layer objects
+train_log, val_log = train_network(model, X_train, y_train, X_val, y_val, epochs=10)    # Begins training
 accuracy = test_network(model, X_test, y_test)
 
-# Plot training and validation accuracy over epochs to visualize performance.
+# Plot training and validation accuracy over epochs to visualise performance.
 plt.figure(figsize=(6, 4))
 plt.plot(train_log, label='Training')
 plt.plot(val_log, label='Validation')
