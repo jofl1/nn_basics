@@ -85,8 +85,7 @@ class Conv2D(Layer):     # Performs 2D convolution operation - fundamental build
         # Initialise output tensor
         output = np.zeros((batch_size, output_height, output_width, self.output_channels))
         
-        # Perform convolution - slide kernel across the image
-        # This is the naive implementation for clarity, not optimised for speed
+        # Perform convolution - slide kernel across the image - not optimised for speed
         for batch_idx in range(batch_size):                          # For each image in the batch
             for output_channel_idx in range(self.output_channels):   # For each output channel (filter)
                 for height_idx in range(output_height):              # For each output height position
@@ -432,7 +431,7 @@ architectures = {
 }
 
 # Select which architecture to use
-selected_architecture = "ConvNet"
+selected_architecture = "JoflNetV1"
 
 # Check if we need convolutional data format by looking at the first layer
 uses_convolution = isinstance(architectures[selected_architecture][0], Conv2D)
