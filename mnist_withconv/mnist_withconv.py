@@ -1,4 +1,6 @@
-import keras 
+#!/usr/bin/env python
+
+from tensorflow import keras 
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -107,7 +109,7 @@ class Conv2D(Layer):     # Performs 2D convolution operation - fundamental build
         
         return output
     
-    def backward(self, input, gradient_from_next_layer):     # Backpropagation through convolution - one of the most complex operations
+    def backward(self, input, gradient_from_next_layer):     # Backpropagation through convolution 
                                                             # gradient_from_next_layer shape: [batch_size, output_height, output_width, output_channels]
         batch_size, height, width, channels = input.shape
         _, output_height, output_width, _ = gradient_from_next_layer.shape
@@ -269,196 +271,197 @@ class NeuralNetwork:        # Capture network's state (layers) and behaviour (tr
             
             return np.mean(loss)     # Returns the average loss value across all samples in the batch
     
-    
-#==============================================================================
-#                            Data Loading
-#==============================================================================
-def load_mnist_data_for_dense_network():     # Loads the dataset from keras, preprocesses it for dense networks, and splits it into training, validation, and test sets
-    
-    (training_images, training_labels), (test_images, test_labels) = keras.datasets.mnist.load_data()     # Loads the raw dataset, which is split into training and testing sets
-    
-    # Normalise pixel values to be between 0 and 1
-    training_images = training_images.astype(float) / 255.     # Converts integer pixel values (0-255) to float and scales them down
-    test_images = test_images.astype(float) / 255.
-    
-    # Carve out a validation set from the training data
-    validation_size = 10000
-    validation_images = training_images[-validation_size:]                # Takes the last 10,000 images for validation
-    validation_labels = training_labels[-validation_size:]
-    training_images = training_images[:-validation_size]                  # The rest of the images remain as the training set
-    training_labels = training_labels[:-validation_size]
-    
-    # Flatten images into one-dimensional vectors
-    training_images = training_images.reshape([training_images.shape[0], -1])     # Reshapes the 28x28 images into 784-element vectors for the dense layers
-    validation_images = validation_images.reshape([validation_images.shape[0], -1])
-    test_images = test_images.reshape([test_images.shape[0], -1])
-    
-    return training_images, training_labels, validation_images, validation_labels, test_images, test_labels
-
-
-def load_mnist_data_for_conv_network():     # Loads the dataset from keras, preprocesses it for convolutional networks, and splits it into training, validation, and test sets
-    
-    (training_images, training_labels), (test_images, test_labels) = keras.datasets.mnist.load_data()     # Loads the raw dataset, which is split into training and testing sets
-    
-    # Normalise pixel values to be between 0 and 1
-    training_images = training_images.astype(float) / 255.     # Converts integer pixel values (0-255) to float and scales them down
-    test_images = test_images.astype(float) / 255.
-    
-    # Carve out a validation set from the training data
-    validation_size = 10000
-    validation_images = training_images[-validation_size:]                # Takes the last 10,000 images for validation
-    validation_labels = training_labels[-validation_size:]
-    training_images = training_images[:-validation_size]                  # The rest of the images remain as the training set
-    training_labels = training_labels[:-validation_size]
-    
-    # Add channel dimension for convolutional networks
-    # MNIST is greyscale, so add a single channel dimension
-    training_images = training_images.reshape([training_images.shape[0], 28, 28, 1])    # Shape becomes [batch, height, width, channels]
-    validation_images = validation_images.reshape([validation_images.shape[0], 28, 28, 1])
-    test_images = test_images.reshape([test_images.shape[0], 28, 28, 1])
-    
-    return training_images, training_labels, validation_images, validation_labels, test_images, test_labels
-
-
-def iterate_minibatches(inputs, targets, batchsize, shuffle=False): # A generator function that yields batches of data
-    assert len(inputs) == len(targets)
-    indices = np.arange(len(inputs))       # Creates an array of indices for the dataset
-    if shuffle:
-        np.random.shuffle(indices)         # Shuffles the indices to randomise the data order, important for training
-    for start_idx in range(0, len(inputs) - batchsize + 1, batchsize):
-        batch_indices = indices[start_idx:start_idx + batchsize] # Selects a slice of indices for the current minibatch
-        yield inputs[batch_indices], targets[batch_indices]      # Yields the data and labels for the current batch
-
-
-#==============================================================================
-#                        Training and Testing
-#==============================================================================
-def train_network(network, training_images, training_labels, validation_images, validation_labels, epochs=25, batch_size=32):     # Manages the overall training process over multiple epochs
-    
-    train_log = []     # List to store training accuracy for each epoch
-    val_log = []       # List to store validation accuracy for each epoch
-    
-    for epoch in range(epochs): # An epoch is one full pass through the entire training dataset
+class Netmain:
+    #==============================================================================
+    #                            Data Loading
+    #==============================================================================
+    def load_mnist_data_for_dense_network(self):     # Loads the dataset from keras, preprocesses it for dense networks, and splits it into training, validation, and test sets
         
-        for batch_images, batch_labels in iterate_minibatches(training_images, training_labels, batch_size, shuffle=True):    # batch_images: array of training images, batch_labels: their labels
-            network.train_batch(batch_images, batch_labels)     # Performs a training step (forward/backward pass) on the minibatch
+        (training_images, training_labels), (test_images, test_labels) = keras.datasets.mnist.load_data()     # Loads the raw dataset, which is split into training and testing sets
         
-        # Calculate and record accuracy at the end of each epoch
-        train_accuracy = np.mean(network.predict(training_images) == training_labels)     # Computes accuracy on the full training set
-        val_accuracy = np.mean(network.predict(validation_images) == validation_labels)   # Computes accuracy on the validation set to monitor for overfitting
+        # Normalise pixel values to be between 0 and 1
+        training_images = training_images.astype(float) / 255.     # Converts integer pixel values (0-255) to float and scales them down
+        test_images = test_images.astype(float) / 255.
         
-        train_log.append(train_accuracy)
-        val_log.append(val_accuracy)
+        # Carve out a validation set from the training data
+        validation_size = 10000
+        validation_images = training_images[-validation_size:]                # Takes the last 10,000 images for validation
+        validation_labels = training_labels[-validation_size:]
+        training_images = training_images[:-validation_size]                  # The rest of the images remain as the training set
+        training_labels = training_labels[:-validation_size]
         
-        print(f"Epoch {epoch}: train_acc = {train_accuracy:.3f}, val_acc = {val_accuracy:.3f}")
-    
-    return train_log, val_log
-
-
-def test_network(network, test_images, test_labels, show_example=True):     # Evaluates the final performance of the network on the unseen test set
-    
-    predictions = network.predict(test_images)     # Gets the model's predictions for the entire test set
-    accuracy = np.mean(predictions == test_labels) # Calculates the final test accuracy
-    
-    print(f"\nTest accuracy: {accuracy:.4f}")
-    
-    np.random.seed(None)
-    random_index = np.random.randint(0, len(test_images))     # Selects a random index from the test set to visualise
-    
-    # Handle different input shapes for display
-    if len(test_images.shape) == 2:  # Flattened data for dense networks
-        display_image = test_images[random_index].reshape(28, 28)         # Reshapes the flat vector back into a 28x28 image for display
-    else:  # Conv data [batch, height, width, channels]
-        display_image = test_images[random_index, :, :, 0]               # Extract the single channel for greyscale display
+        # Flatten images into one-dimensional vectors
+        training_images = training_images.reshape([training_images.shape[0], -1])     # Reshapes the 28x28 images into 784-element vectors for the dense layers
+        validation_images = validation_images.reshape([validation_images.shape[0], -1])
+        test_images = test_images.reshape([test_images.shape[0], -1])
         
-    true_label = test_labels[random_index]
+        return training_images, training_labels, validation_images, validation_labels, test_images, test_labels
     
-    # Get the network's raw output for the selected image
-    raw_output_scores = network.forward(test_images[random_index:random_index+1])[-1][0]     # Slicing with [random_index:random_index+1] keeps the dimensions, [-1][0] extracts the final layer's output
-    predicted_label = raw_output_scores.argmax()                                             # The predicted class is the index of the highest score
     
-    plt.figure(figsize=(6, 3))
+    def load_mnist_data_for_conv_network(self):     # Loads the dataset from keras, preprocesses it for convolutional networks, and splits it into training, validation, and test sets
+        
+        (training_images, training_labels), (test_images, test_labels) = keras.datasets.mnist.load_data()     # Loads the raw dataset, which is split into training and testing sets
+        
+        # Normalise pixel values to be between 0 and 1
+        training_images = training_images.astype(float) / 255.     # Converts integer pixel values (0-255) to float and scales them down
+        test_images = test_images.astype(float) / 255.
+        
+        # Carve out a validation set from the training data
+        validation_size = 5000
+        validation_images = training_images[-validation_size:]                # Takes the last 10,000 images for validation
+        validation_labels = training_labels[-validation_size:]
+        training_images = training_images[:5000]                  # The rest of the images remain as the training set
+        training_labels = training_labels[:5000]
+        
+        # Add channel dimension for convolutional networks
+        # MNIST is greyscale, so add a single channel dimension
+        training_images = training_images.reshape([training_images.shape[0], 28, 28, 1])    # Shape becomes [batch, height, width, channels]
+        validation_images = validation_images.reshape([validation_images.shape[0], 28, 28, 1])
+        test_images = test_images.reshape([test_images.shape[0], 28, 28, 1])
+        
+        return training_images, training_labels, validation_images, validation_labels, test_images, test_labels
     
-    plt.subplot(1, 2, 1)
-    plt.imshow(display_image, cmap='grey')
-    plt.title(f"True: {true_label}, Predicted: {predicted_label}")
-    plt.axis('off')
     
-    plt.subplot(1, 2, 2)
-    plt.bar(range(10), raw_output_scores)
-    plt.xlabel('Digit')
-    plt.ylabel('Score')
-    plt.title('Network Output Scores')
+    def iterate_minibatches(self, inputs, targets, batchsize, shuffle=False): # A generator function that yields batches of data
+        assert len(inputs) == len(targets)
+        indices = np.arange(len(inputs))       # Creates an array of indices for the dataset
+        if shuffle:
+            np.random.shuffle(indices)         # Shuffles the indices to randomise the data order, important for training
+        for start_idx in range(0, len(inputs) - batchsize + 1, batchsize):
+            batch_indices = indices[start_idx:start_idx + batchsize] # Selects a slice of indices for the current minibatch
+            yield inputs[batch_indices], targets[batch_indices]      # Yields the data and labels for the current batch
     
-    plt.tight_layout()
     
-    print(f"Raw output scores: {raw_output_scores}")     # Prints the raw output scores for each class, rounded for readability
-    print(f"True label: {true_label}, Predicted: {predicted_label}")
-
-    return accuracy
+    #==============================================================================
+    #                        Training and Testing
+    #==============================================================================
+    def train_network(self, network, training_images, training_labels, validation_images, validation_labels, epochs=25, batch_size=32):     # Manages the overall training process over multiple epochs
+        
+        train_log = []     # List to store training accuracy for each epoch
+        val_log = []       # List to store validation accuracy for each epoch
+        
+        for epoch in range(epochs): # An epoch is one full pass through the entire training dataset
+            
+            for batch_images, batch_labels in self.iterate_minibatches(training_images, training_labels, batch_size, shuffle=True):    # batch_images: array of training images, batch_labels: their labels
+                network.train_batch(batch_images, batch_labels)     # Performs a training step (forward/backward pass) on the minibatch
+            
+            # Calculate and record accuracy at the end of each epoch
+            train_accuracy = np.mean(network.predict(training_images) == training_labels)     # Computes accuracy on the full training set
+            val_accuracy = np.mean(network.predict(validation_images) == validation_labels)   # Computes accuracy on the validation set to monitor for overfitting
+            
+            train_log.append(train_accuracy)
+            val_log.append(val_accuracy)
+            
+            print(f"Epoch {epoch}: train_acc = {train_accuracy:.3f}, val_acc = {val_accuracy:.3f}")
+        
+        return train_log, val_log
     
-# --- Main Execution ---
-
-# Define different network layer configurations in a dictionary for easy experimentation
-architectures = {
-    "Agrawal": [        # Original fully connected architecture
-        Dense(784, 100, 0.1),    # ie accept an input vector of size 784 (28x28) and output a vector of size 100. self.weights is array of (784,100), self.biases is (100,)
-        ReLU(),
-        Dense(100, 200, 0.2),
-        ReLU(),
-        Dense(200, 10, 0.1)
-    ],
     
-    "JoflNetV1": [      # Deeper fully connected architecture
-        Dense(784, 200, 0.1),
-        ReLU(),
-        Dense(200, 400, 0.2),
-        ReLU(),
-        Dense(400, 100, 0.1),
-        ReLU(),
-        Dense(100, 10, 0.2)
-    ],
+    def test_network(self, network, test_images, test_labels, show_example=True):     # Evaluates the final performance of the network on the unseen test set
+        
+        predictions = network.predict(test_images)     # Gets the model's predictions for the entire test set
+        accuracy = np.mean(predictions == test_labels) # Calculates the final test accuracy
+        
+        print(f"\nTest accuracy: {accuracy:.4f}")
+        
+        np.random.seed(None)
+        random_index = np.random.randint(0, len(test_images))     # Selects a random index from the test set to visualise
+        
+        # Handle different input shapes for display
+        if len(test_images.shape) == 2:  # Flattened data for dense networks
+            display_image = test_images[random_index].reshape(28, 28)         # Reshapes the flat vector back into a 28x28 image for display
+        else:  # Conv data [batch, height, width, channels]
+            display_image = test_images[random_index, :, :, 0]               # Extract the single channel for greyscale display
+            
+        true_label = test_labels[random_index]
+        
+        # Get the network's raw output for the selected image
+        raw_output_scores = network.forward(test_images[random_index:random_index+1])[-1][0]     # Slicing with [random_index:random_index+1] keeps the dimensions, [-1][0] extracts the final layer's output
+        predicted_label = raw_output_scores.argmax()                                             # The predicted class is the index of the highest score
+        
+        plt.figure(figsize=(6, 3))
+        
+        plt.subplot(1, 2, 1)
+        plt.imshow(display_image, cmap='grey')
+        plt.title(f"True: {true_label}, Predicted: {predicted_label}")
+        plt.axis('off')
+        
+        plt.subplot(1, 2, 2)
+        plt.bar(range(10), raw_output_scores)
+        plt.xlabel('Digit')
+        plt.ylabel('Score')
+        plt.title('Network Output Scores')
+        
+        plt.tight_layout()
+        
+        print(f"Raw output scores: {raw_output_scores}")     # Prints the raw output scores for each class, rounded for readability
+        print(f"True label: {true_label}, Predicted: {predicted_label}")
     
-    "ConvNet": [        # Convolutional architecture - processes images in their natural 2D structure
-        Conv2D(1, 32, kernel_size=3, padding=1, learning_rate=0.1),     # 32 filters of size 3x3, maintains spatial size with padding
-        ReLU(),
-        Conv2D(32, 64, kernel_size=3, stride=2, padding=1, learning_rate=0.1),   # 64 filters, stride 2 reduces spatial dimensions by half
-        ReLU(),
-        Flatten(),      # Convert from 4D  to 2D for Dense layers 
-        Dense(12544, 128, 0.1),   # 12544 = 14*14*64 (the flattened size from previous conv layer)
-        ReLU(),
-        Dense(128, 10, 0.1)      # Final classification layer - 10 outputs for 10 digits
-    ],
-}
-
-# Select which architecture to use
-selected_architecture = "ConvNet"
-
-# Check if we need convolutional data format by looking at the first layer
-uses_convolution = isinstance(architectures[selected_architecture][0], Conv2D)
-
-# Load data in appropriate format
-if uses_convolution:
-    training_images, training_labels, validation_images, validation_labels, test_images, test_labels = load_mnist_data_for_conv_network()
-else:
-    training_images, training_labels, validation_images, validation_labels, test_images, test_labels = load_mnist_data_for_dense_network()
-
-print(f"Data loaded: {training_images.shape[0]} training, {validation_images.shape[0]} validation, {test_images.shape[0]} test samples")
-print(f"Data shape: {training_images.shape}")
-
-# Create, train, and test the network
-print(f"\nTraining {selected_architecture} network")
-model = NeuralNetwork(architectures[selected_architecture])   # Instantiates the network with the chosen set of layers, ie creates neural network object and self.layers is list containing x layer objects
-train_log, val_log = train_network(model, training_images, training_labels, validation_images, validation_labels, epochs=10)    # Begins training
-accuracy = test_network(model, test_images, test_labels)
-
-# Plot training and validation accuracy over epochs to visualise performance
-plt.figure(figsize=(6, 4))
-plt.plot(train_log, label='Training')
-plt.plot(val_log, label='Validation')
-plt.xlabel('Epoch')
-plt.ylabel('Accuracy')
-plt.title(f'Training Progress - {selected_architecture} network')
-plt.legend()
-plt.grid(True)
-plt.show()
+        return accuracy
+        
+    # --- Main Execution ---
+    def run(self):
+        # Define different network layer configurations in a dictionary for easy experimentation
+        architectures = {
+            "Agrawal": [        # Original fully connected architecture
+                Dense(784, 100, 0.1),    # ie accept an input vector of size 784 (28x28) and output a vector of size 100. self.weights is array of (784,100), self.biases is (100,)
+                ReLU(),
+                Dense(100, 200, 0.2),
+                ReLU(),
+                Dense(200, 10, 0.1)
+            ],
+            
+            "JoflNetV1": [      # Deeper fully connected architecture
+                Dense(784, 200, 0.1),
+                ReLU(),
+                Dense(200, 400, 0.2),
+                ReLU(),
+                Dense(400, 100, 0.1),
+                ReLU(),
+                Dense(100, 10, 0.2)
+            ],
+            
+            "ConvNet": [        
+                Conv2D(1, 4, kernel_size=3, stride=2, padding=1, learning_rate=0.1),     # 4 filters of size 3x3, maintains spatial size with padding
+                ReLU(),
+                Flatten(),      # Convert from 4D to 2D for Dense layers 
+                Dense(784, 128, 0.1),   # 784 = 14*14*4 (the flattened size from previous conv layer)
+                ReLU(),
+                Dense(128, 10, 0.1)      
+            ],
+        }
+        
+        # Select which architecture to use
+        selected_architecture = "ConvNet"
+        
+        # Check if we need convolutional data format by looking at the first layer - returns True if first element is conv2d
+        uses_convolution = isinstance(architectures[selected_architecture][0], Conv2D)
+        
+        # Load data in appropriate format
+        if uses_convolution:
+            training_images, training_labels, validation_images, validation_labels, test_images, test_labels = self.load_mnist_data_for_conv_network()
+        else:
+            training_images, training_labels, validation_images, validation_labels, test_images, test_labels = self.load_mnist_data_for_dense_network()
+        
+        print(f"Data loaded: {training_images.shape[0]} training, {validation_images.shape[0]} validation, {test_images.shape[0]} test samples")
+        print(f"Data shape: {training_images.shape}")
+        
+        # Create, train, and test the network
+        print(f"\nTraining {selected_architecture} network")
+        model = NeuralNetwork(architectures[selected_architecture])   # Instantiates the network with the chosen set of layers, ie creates neural network object and self.layers is list containing x layer objects
+        train_log, val_log = self.train_network(model, training_images, training_labels, validation_images, validation_labels, epochs=10)    # Begins training
+        accuracy = self.test_network(model, test_images, test_labels)
+        
+        # Plot training and validation accuracy over epochs to visualise performance
+        plt.figure(figsize=(6, 4))
+        plt.plot(train_log, label='Training')
+        plt.plot(val_log, label='Validation')
+        plt.xlabel('Epoch')
+        plt.ylabel('Accuracy')
+        plt.title(f'Training Progress - {selected_architecture} network')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+        
+n = Netmain()
+n.run()
