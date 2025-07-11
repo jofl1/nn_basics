@@ -253,7 +253,7 @@ architectures = {
         Dense(200, 10, 0.1)
     ],
     
-    "Josh": [
+    "JoflNetV1": [
         Dense(784, 200, 0.1),
         ReLU(),
         Dense(200, 400, 0.2),
@@ -261,10 +261,15 @@ architectures = {
         Dense(400, 100, 0.1),
         ReLU(),
         Dense(100, 10, 0.2)
+    ],
+    
+    "TestNet": [
+        Dense(784, 50, 0.1),
+        ReLU(200,400, 0.2)
     ]
 }
 
-selected_architecture = "Josh"
+selected_architecture = "JoflNetV1s"
 
 # Create, train, and test the network
 print(f"\nTraining {selected_architecture} network")
