@@ -55,7 +55,7 @@ class MNISTClassifier:
                 nn.Conv2d(64, 32, kernel_size=5, stride=2, padding=1),
                 nn.ReLU(),
                 nn.Flatten(),
-                nn.Linear(14*14*32, 256),
+                nn.Linear(12*12*32, 256),
                 nn.ReLU(),
                 nn.Linear(256, 100),
                 nn.ReLU(),
