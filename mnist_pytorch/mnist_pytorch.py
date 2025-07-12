@@ -181,7 +181,7 @@ class MNISTClassifier:
         
         # Training process: returns tuple of lists containing float accuracy values
         train_log, val_log = self.train_network(model, epochs=10, batch_size=128, lr=0.001)
-        accuracy = self.test_network(model)  # Final test accuracy: float
+
         
 
         plt.figure(figsize=(6, 4))
