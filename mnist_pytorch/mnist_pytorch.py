@@ -181,6 +181,12 @@ class MNISTClassifier:
         
         # Training process: returns tuple of lists containing float accuracy values
         train_log, val_log = self.train_network(model, epochs=10, batch_size=128, lr=0.001)
+        
+        # convert to TorchScript
+        model.eval()
+        example_input = torch.randn(1, 1, 28, 28)  # Example MNIST input
+        traced_model = torch.jit.trace(model, example_input)
+        traced_model.save('MNIST_model_traced.pt')
 
         
 
