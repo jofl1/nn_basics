@@ -184,9 +184,10 @@ class MNISTClassifier:
         
         # convert to TorchScript
         model.eval()
-        example_input = torch.randn(1, 1, 28, 28)  # Example MNIST input
+        example_input = torch.randn(1, 1, 28, 28).to(self.device)  # Example MNIST input
         traced_model = torch.jit.trace(model, example_input)
         traced_model.save('MNIST_model_traced.pt')
+        print("Model saved as MNIST_model_traced.pt")
 
         
 
