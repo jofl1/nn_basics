@@ -189,9 +189,6 @@ class MNISTClassifier:
         traced_model.save('MNIST_model_traced.pt')
         print("Model saved as MNIST_model_traced.pt")
         
-
-        
-
         plt.figure(figsize=(6, 4))
         plt.plot(train_log, label='Training')      
         plt.plot(val_log, label='Validation')    
