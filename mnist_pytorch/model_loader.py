@@ -17,7 +17,7 @@ def load_model(model_path):
 def get_test_image():
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((mnist_mean), (mnist_std))
+        transforms.Normalize((mnist_mean,), (mnist_std,))
     ])
     
     test_dataset = datasets.MNIST(
