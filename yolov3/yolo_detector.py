@@ -1,9 +1,8 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from PIL import Image, ImageDraw
-import cv2
 import time
+import cv2
 import os
 
 class YOLOLayer(nn.Module):
@@ -375,34 +374,38 @@ COCO_CLASSES = [
 ]
 
 def draw_detections(img, detections, img_size=416):
-    img_pil = Image.fromarray(img)
-    draw = ImageDraw.Draw(img_pil)
-   
+    # No need to convert to PIL Image, work directly on the NumPy array
+    
     # Scale detections back to original image size
     h, w = img.shape[:2]
-    scale = min(img_size/w, img_size/h)
+    scale = min(img_size / w, img_size / h)
     new_w = int(w * scale)
     new_h = int(h * scale)
     dw = (img_size - new_w) // 2
     dh = (img_size - new_h) // 2
-   
+    
+    # Define font and color for OpenCV
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    color = (255, 0, 0)  # Red in RGB
+    
     for det in detections:
         x1, y1, x2, y2, conf, cls_conf, cls = det
-       
-        # Adjust coordinates
-        x1 = (x1 - dw) / scale
-        y1 = (y1 - dh) / scale
-        x2 = (x2 - dw) / scale
-        y2 = (y2 - dh) / scale
-       
-        # Draw box
-        draw.rectangle([x1, y1, x2, y2], outline='red', width=2)
-       
-        # Draw label
+        
+        # Adjust coordinates from padded to original
+        x1 = int((x1 - dw) / scale)
+        y1 = int((y1 - dh) / scale)
+        x2 = int((x2 - dw) / scale)
+        y2 = int((y2 - dh) / scale)
+        
+        # Draw box with cv2.rectangle
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+        
+        # Create label and draw with cv2.putText
         label = f'{COCO_CLASSES[int(cls)]}: {conf:.2f}'
-        draw.text((x1, y1-10), label, fill='red')
-   
-    return np.array(img_pil)
+        cv2.putText(img, label, (x1, y1 - 10), font, 0.5, color, 2)
+        
+    # The 'img' array is modified in-place, so just return it
+    return img
 
 # Main detection function
 def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, nms_thres=0.4):
@@ -429,7 +432,6 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
         torch.cuda.synchronize()
    
     # Run inference with timing
-    import time
     start_time = time.time()
    
     with torch.no_grad():
@@ -442,18 +444,22 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
     inference_time = time.time() - start_time
     print(f"Inference time: {inference_time*1000:.2f} ms")
    
-    # Draw detections
+ # Draw detections
     if len(detections) > 0:
-        result_img = draw_detections(original_img, detections)
+        # The detections are drawn on the 'original_img' (which is in RGB format)
+        result_img = draw_detections(original_img, detections.cpu()) # Ensure detections are on CPU
     else:
         result_img = original_img
         print("No objects detected")
-   
-    # Save result
-    result_pil = Image.fromarray(result_img)
-    result_pil.save(output_path)
+    
+    # --- CHANGE HERE ---
+    # Convert result from RGB back to BGR for OpenCV saving
+    result_bgr = cv2.cvtColor(result_img, cv2.COLOR_RGB2BGR)
+    
+    # Save result using cv2.imwrite
+    cv2.imwrite(output_path, result_bgr)
     print(f"Result saved to {output_path}")
-   
+    
     return detections
 
 # Example usage
