@@ -35,7 +35,6 @@ class YOLOLayer(nn.Module):
         # Calculate stride
         stride = self.img_size // grid_size
        
-        # Calculate offsets for each grid
         grid_x = torch.arange(grid_size, device=x.device).repeat(grid_size, 1).view([1, 1, grid_size, grid_size]).float()
         grid_y = torch.arange(grid_size, device=x.device).repeat(grid_size, 1).t().view([1, 1, grid_size, grid_size]).float()
        
@@ -46,14 +45,12 @@ class YOLOLayer(nn.Module):
         anchor_w = anchor_w.repeat(batch_size, 1).view(batch_size, self.num_anchors, 1, 1).to(x.device)
         anchor_h = anchor_h.repeat(batch_size, 1).view(batch_size, self.num_anchors, 1, 1).to(x.device)
        
-        # Add offset and scale with anchors
         pred_boxes = torch.zeros_like(prediction[..., :4])
         pred_boxes[..., 0] = x + grid_x
         pred_boxes[..., 1] = y + grid_y
         pred_boxes[..., 2] = torch.exp(w) * anchor_w
         pred_boxes[..., 3] = torch.exp(h) * anchor_h
        
-        # Reshape output
         output = torch.cat((pred_boxes.view(batch_size, -1, 4) * stride,
                            conf.view(batch_size, -1, 1),
                            pred_cls.view(batch_size, -1, self.num_classes)), -1)
@@ -203,7 +200,7 @@ class Darknet(nn.Module):
                     # Load BN bias, weights, running mean and var
                     num_bn_biases = bn_layer.bias.numel()
                    
-                    # Check if we have enough weights
+                    # Check if enough weights
                     if ptr + num_bn_biases > len(weights):
                         raise RuntimeError(f"Not enough weights for BN bias at layer {i}")
                    
@@ -424,7 +421,6 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
     img_tensor, original_img = preprocess_image(img_path)
     img_tensor = img_tensor.to(device)  # Move input to GPU
    
-    # Warm up GPU (optional but recommended for accurate timing)
     if device.type == 'cuda':
         for _ in range(3):
             _ = model(img_tensor)
@@ -460,7 +456,6 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
     
     return detections
 
-# Example usage
 if __name__ == "__main__":
    
     # Paths
