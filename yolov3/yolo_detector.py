@@ -103,7 +103,9 @@ class Darknet(nn.Module):
                 stride = int(block['stride'])
                 pad = (kernel_size - 1) // 2 if block.get('pad') else 0
                 
-                conv = nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=False)
+                # Conv layers have bias only when there's no batch norm
+                has_bias = 'batch_normalize' not in block
+                conv = nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=has_bias)
                 module.add_module(f'conv_{idx}', conv)
                 
                 if 'batch_normalize' in block:
@@ -187,6 +189,9 @@ class Darknet(nn.Module):
             header = np.fromfile(f, dtype=np.int32, count=5)
             weights = np.fromfile(f, dtype=np.float32)
             
+        print(f"Loading weights from {weights_path}")
+        print(f"Total weights in file: {len(weights)}")
+            
         ptr = 0
         for i, (block, module) in enumerate(zip(self.blocks[1:], self.module_list)):
             if block['type'] == 'convolutional':
@@ -196,6 +201,10 @@ class Darknet(nn.Module):
                     
                     # Load BN bias, weights, running mean and var
                     num_bn_biases = bn_layer.bias.numel()
+                    
+                    # Check if we have enough weights
+                    if ptr + num_bn_biases > len(weights):
+                        raise RuntimeError(f"Not enough weights for BN bias at layer {i}")
                     
                     bn_biases = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
                     ptr += num_bn_biases
@@ -214,17 +223,36 @@ class Darknet(nn.Module):
                     bn_layer.running_mean.copy_(bn_running_mean.view_as(bn_layer.running_mean))
                     bn_layer.running_var.copy_(bn_running_var.view_as(bn_layer.running_var))
                 else:
-                    # Load conv bias
+                    # Load conv bias (only present when there's no batch norm)
                     num_biases = conv_layer.bias.numel()
+                    
+                    # Check if we have enough weights
+                    if ptr + num_biases > len(weights):
+                        raise RuntimeError(f"Not enough weights for conv bias at layer {i}")
+                    
                     conv_biases = torch.from_numpy(weights[ptr:ptr + num_biases])
                     ptr += num_biases
                     conv_layer.bias.data.copy_(conv_biases.view_as(conv_layer.bias.data))
                 
                 # Load conv weights
                 num_weights = conv_layer.weight.numel()
-                conv_weights = torch.from_numpy(weights[ptr:ptr + num_weights])
-                ptr += num_weights
-                conv_layer.weight.data.copy_(conv_weights.view_as(conv_layer.weight.data))
+                
+                # Check if we have enough weights
+                if ptr + num_weights > len(weights):
+                    raise RuntimeError(f"Not enough weights for conv weights at layer {i}. Need {num_weights}, have {len(weights) - ptr}")
+                
+                try:
+                    conv_weights = torch.from_numpy(weights[ptr:ptr + num_weights])
+                    ptr += num_weights
+                    conv_layer.weight.data.copy_(conv_weights.view_as(conv_layer.weight.data))
+                except RuntimeError as e:
+                    print(f"Error at layer {i}: {block}")
+                    print(f"Conv layer shape: {conv_layer.weight.shape}")
+                    print(f"Trying to load {num_weights} weights")
+                    print(f"Available weights: {len(weights) - ptr}")
+                    raise e
+        
+        print(f"Loaded weights: {ptr} / {len(weights)} values used")
 
 def preprocess_image(img_path, img_size=416):
     img = cv2.imread(img_path)
@@ -411,11 +439,36 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
 
 # Example usage
 if __name__ == "__main__":
+    import os
+    
     # Paths
     cfg_path = "yolov3.cfg"
     weights_path = "yolov3.weights"
     img_path = "test_image.jpg"  # Your input image
     output_path = "detected_image.jpg"  # Output path
+    
+    # Check files exist
+    if not os.path.exists(cfg_path):
+        print(f"Error: {cfg_path} not found!")
+        exit(1)
+        
+    if not os.path.exists(weights_path):
+        print(f"Error: {weights_path} not found!")
+        print("Download with: wget -c 'https://pjreddie.com/media/files/yolov3.weights' --header 'Referer: pjreddie.com'")
+        exit(1)
+    
+    # Check weights file size (should be ~248MB)
+    weights_size = os.path.getsize(weights_path)
+    expected_size = 248007048  # bytes
+    if weights_size != expected_size:
+        print(f"Warning: {weights_path} size is {weights_size} bytes, expected {expected_size} bytes")
+        print("The weights file might be corrupted or incomplete. Please re-download.")
+        exit(1)
+    
+    if not os.path.exists(img_path):
+        print(f"Error: {img_path} not found!")
+        print("Please provide a test image.")
+        exit(1)
     
     # Run detection
     detections = detect_image(cfg_path, weights_path, img_path, output_path)
