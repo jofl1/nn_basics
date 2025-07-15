@@ -374,7 +374,6 @@ COCO_CLASSES = [
 ]
 
 def draw_detections(img, detections, img_size=416):
-    # No need to convert to PIL Image, work directly on the NumPy array
     
     # Scale detections back to original image size
     h, w = img.shape[:2]
@@ -452,7 +451,6 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
         result_img = original_img
         print("No objects detected")
     
-    # --- CHANGE HERE ---
     # Convert result from RGB back to BGR for OpenCV saving
     result_bgr = cv2.cvtColor(result_img, cv2.COLOR_RGB2BGR)
     
@@ -464,36 +462,12 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
 
 # Example usage
 if __name__ == "__main__":
-    import os
    
     # Paths
     cfg_path = "yolov3.cfg"
     weights_path = "yolov3.weights"
     img_path = "test_image.jpg"  # Your input image
     output_path = "detected_image.jpg"  # Output path
-   
-    # Check files exist
-    if not os.path.exists(cfg_path):
-        print(f"Error: {cfg_path} not found!")
-        exit(1)
-       
-    if not os.path.exists(weights_path):
-        print(f"Error: {weights_path} not found!")
-        print("Download with: wget -c 'https://pjreddie.com/media/files/yolov3.weights' --header 'Referer: pjreddie.com'")
-        exit(1)
-   
-    # Check weights file size (should be ~248MB)
-    weights_size = os.path.getsize(weights_path)
-    expected_size = 248007048  # bytes
-    if weights_size != expected_size:
-        print(f"Warning: {weights_path} size is {weights_size} bytes, expected {expected_size} bytes")
-        print("The weights file might be corrupted or incomplete. Please re-download.")
-        exit(1)
-   
-    if not os.path.exists(img_path):
-        print(f"Error: {img_path} not found!")
-        print("Please provide a test image.")
-        exit(1)
    
     # Run detection
     detections = detect_image(cfg_path, weights_path, img_path, output_path)
