@@ -6,356 +6,320 @@ import cv2
 import os
 
 class YOLOLayer(nn.Module):
-    def __init__(self, anchors, num_classes, img_size):
+    def __init__(self, anchors, num_classes, image_size):
         super(YOLOLayer, self).__init__()
         self.anchors = anchors
         self.num_anchors = len(anchors)
         self.num_classes = num_classes
-        self.img_size = img_size
+        self.image_size = image_size
         self.grid_size = 0
         self.stride = 0
-       
-    def forward(self, x):
-        batch_size = x.size(0)
-        grid_size = x.size(2)
-       
-        # Reshape predictions
-        prediction = x.view(batch_size, self.num_anchors,
-                          self.num_classes + 5, grid_size, grid_size)
-        prediction = prediction.permute(0, 1, 3, 4, 2).contiguous()
-       
-        # Get outputs
-        x = torch.sigmoid(prediction[..., 0])  # Center x
-        y = torch.sigmoid(prediction[..., 1])  # Center y
-        w = prediction[..., 2]  # Width
-        h = prediction[..., 3]  # Height
-        conf = torch.sigmoid(prediction[..., 4])  # Confidence
-        pred_cls = torch.sigmoid(prediction[..., 5:])  # Class predictions
-       
-        # Calculate stride
-        stride = self.img_size // grid_size
-       
-        # Calculate offsets for each grid
-        grid_x = torch.arange(grid_size, device=x.device).repeat(grid_size, 1).view([1, 1, grid_size, grid_size]).float()
-        grid_y = torch.arange(grid_size, device=x.device).repeat(grid_size, 1).t().view([1, 1, grid_size, grid_size]).float()
-       
-        # Calculate anchor boxes
-        scaled_anchors = [(a[0]/stride, a[1]/stride) for a in self.anchors]
-        anchor_w = torch.FloatTensor(scaled_anchors).index_select(1, torch.LongTensor([0]))
-        anchor_h = torch.FloatTensor(scaled_anchors).index_select(1, torch.LongTensor([1]))
-        anchor_w = anchor_w.repeat(batch_size, 1).view(batch_size, self.num_anchors, 1, 1).to(x.device)
-        anchor_h = anchor_h.repeat(batch_size, 1).view(batch_size, self.num_anchors, 1, 1).to(x.device)
-       
-        # Add offset and scale with anchors
-        pred_boxes = torch.zeros_like(prediction[..., :4])
-        pred_boxes[..., 0] = x + grid_x
-        pred_boxes[..., 1] = y + grid_y
-        pred_boxes[..., 2] = torch.exp(w) * anchor_w
-        pred_boxes[..., 3] = torch.exp(h) * anchor_h
-       
-        # Reshape output
-        output = torch.cat((pred_boxes.view(batch_size, -1, 4) * stride,
-                           conf.view(batch_size, -1, 1),
-                           pred_cls.view(batch_size, -1, self.num_classes)), -1)
-       
+        
+    def forward(self, input_features):
+        batch_size = input_features.size(0)
+        grid_size = input_features.size(2)
+        
+        # Reshape the input tensor into a grid of predictions
+        raw_prediction = input_features.view(
+            batch_size, self.num_anchors, self.num_classes + 5, grid_size, grid_size
+        )
+        raw_prediction = raw_prediction.permute(0, 1, 3, 4, 2).contiguous()
+        
+        # Extract individual prediction components
+        center_x = torch.sigmoid(raw_prediction[..., 0])
+        center_y = torch.sigmoid(raw_prediction[..., 1])
+        width = raw_prediction[..., 2]
+        height = raw_prediction[..., 3]
+        confidence_score = torch.sigmoid(raw_prediction[..., 4])
+        predicted_class_scores = torch.sigmoid(raw_prediction[..., 5:])
+        
+        # Calculate stride for scaling
+        self.stride = self.image_size // grid_size
+        
+        # Create grid offsets
+        grid_x = torch.arange(grid_size, device=input_features.device).repeat(grid_size, 1).view([1, 1, grid_size, grid_size]).float()
+        grid_y = torch.arange(grid_size, device=input_features.device).repeat(grid_size, 1).t().view([1, 1, grid_size, grid_size]).float()
+        
+        # Scale anchors to the feature map size
+        scaled_anchors = [(anchor_width / self.stride, anchor_height / self.stride) for anchor_width, anchor_height in self.anchors]
+        anchor_widths = torch.FloatTensor(scaled_anchors).index_select(1, torch.LongTensor([0])).to(input_features.device)
+        anchor_heights = torch.FloatTensor(scaled_anchors).index_select(1, torch.LongTensor([1])).to(input_features.device)
+        
+        anchor_widths = anchor_widths.repeat(batch_size, 1).view(batch_size, self.num_anchors, 1, 1)
+        anchor_heights = anchor_heights.repeat(batch_size, 1).view(batch_size, self.num_anchors, 1, 1)
+        
+        # Calculate final bounding box predictions
+        predicted_boxes = torch.zeros_like(raw_prediction[..., :4])
+        predicted_boxes[..., 0] = center_x + grid_x
+        predicted_boxes[..., 1] = center_y + grid_y
+        predicted_boxes[..., 2] = torch.exp(width) * anchor_widths
+        predicted_boxes[..., 3] = torch.exp(height) * anchor_heights
+        
+        # Combine all predictions into a single tensor
+        output = torch.cat((
+            predicted_boxes.view(batch_size, -1, 4) * self.stride,
+            confidence_score.view(batch_size, -1, 1),
+            predicted_class_scores.view(batch_size, -1, self.num_classes)
+        ), -1)
+        
         return output
 
+#---------------------------------------------------------------------------------------------------
+
 class Darknet(nn.Module):
-    def __init__(self, cfg_path, img_size=416):
+    def __init__(self, config_path, image_size=416):
         super(Darknet, self).__init__()
-        self.blocks = self.parse_cfg(cfg_path)
-        self.img_size = img_size
-        self.module_list = self.create_modules(self.blocks)
-       
-    def parse_cfg(self, cfg_path):
-        with open(cfg_path, 'r') as f:
-            lines = f.read().split('\n')
-        lines = [x for x in lines if x and not x.startswith('#')]
-        lines = [x.strip() for x in lines]
-       
-        blocks = []
-        block = {}
-       
+        self.module_definitions = self.parse_config(config_path)
+        self.image_size = image_size
+        self.module_list = self.create_network_modules(self.module_definitions)
+        
+    def parse_config(self, config_path):
+        with open(config_path, 'r') as config_file:
+            lines = config_file.read().split('\n')
+        lines = [line for line in lines if line and not line.startswith('#')]
+        lines = [line.strip() for line in lines]
+        
+        module_definitions = []
         for line in lines:
             if line.startswith('['):
-                if block:
-                    blocks.append(block)
-                block = {}
-                block['type'] = line[1:-1]
+                if module_definitions:
+                    module_definitions.append(current_block)
+                current_block = {'type': line[1:-1]}
             else:
                 key, value = line.split('=')
-                block[key.strip()] = value.strip()
-        blocks.append(block)
-       
-        return blocks
-   
-    def create_modules(self, blocks):
-        net_info = blocks[0]
+                current_block[key.strip()] = value.strip()
+        module_definitions.append(current_block)
+        
+        return module_definitions
+    
+    def create_network_modules(self, module_definitions):
+        network_info = module_definitions[0]
         module_list = nn.ModuleList()
-        prev_filters = 3
-        output_filters = []
-       
-        for idx, block in enumerate(blocks[1:]):
+        previous_filters = 3  # Initial channels for RGB image
+        output_filters_history = []
+        
+        for index, block_def in enumerate(module_definitions[1:]):
             module = nn.Sequential()
-           
-            if block['type'] == 'convolutional':
-                filters = int(block['filters'])
-                kernel_size = int(block['size'])
-                stride = int(block['stride'])
-                pad = (kernel_size - 1) // 2 if block.get('pad') else 0
-               
-                # Conv layers have bias only when there's no batch norm
-                has_bias = 'batch_normalize' not in block
-                conv = nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=has_bias)
-                module.add_module(f'conv_{idx}', conv)
-               
-                if 'batch_normalize' in block:
-                    bn = nn.BatchNorm2d(filters)
-                    module.add_module(f'batch_norm_{idx}', bn)
-               
-                if block['activation'] == 'leaky':
-                    activn = nn.LeakyReLU(0.1, inplace=True)
-                    module.add_module(f'leaky_{idx}', activn)
-                   
-            elif block['type'] == 'upsample':
-                upsample = nn.Upsample(scale_factor=int(block['stride']), mode='nearest')
-                module.add_module(f'upsample_{idx}', upsample)
-               
-            elif block['type'] == 'route':
-                layers = block['layers'].split(',')
-                layers = [int(x) for x in layers]
-               
-                if len(layers) == 1:
-                    filters = output_filters[layers[0]]
-                else:
-                    filters = sum([output_filters[l] for l in layers])
-               
-                module.add_module(f'route_{idx}', nn.Identity())
-               
-            elif block['type'] == 'shortcut':
-                module.add_module(f'shortcut_{idx}', nn.Identity())
-               
-            elif block['type'] == 'yolo':
-                mask = block['mask'].split(',')
-                mask = [int(x) for x in mask]
-               
-                anchors = block['anchors'].split(',')
-                anchors = [(int(anchors[i]), int(anchors[i+1]))
-                          for i in range(0, len(anchors), 2)]
-                anchors = [anchors[i] for i in mask]
-               
-                num_classes = int(block['classes'])
-                img_size = int(net_info['height'])
-               
-                yolo = YOLOLayer(anchors, num_classes, img_size)
-                module.add_module(f'yolo_{idx}', yolo)
-               
+            
+            if block_def['type'] == 'convolutional':
+                filters = int(block_def['filters'])
+                kernel_size = int(block_def['size'])
+                stride = int(block_def['stride'])
+                padding = (kernel_size - 1) // 2 if int(block_def.get('pad', 0)) else 0
+                has_bias = 'batch_normalize' not in block_def
+                
+                conv_layer = nn.Conv2d(previous_filters, filters, kernel_size, stride, padding, bias=has_bias)
+                module.add_module(f'conv_{index}', conv_layer)
+                
+                if 'batch_normalize' in block_def:
+                    bn_layer = nn.BatchNorm2d(filters)
+                    module.add_module(f'batch_norm_{index}', bn_layer)
+                
+                if block_def['activation'] == 'leaky':
+                    activation_layer = nn.LeakyReLU(0.1, inplace=True)
+                    module.add_module(f'leaky_{index}', activation_layer)
+                    
+            elif block_def['type'] == 'upsample':
+                upsample_layer = nn.Upsample(scale_factor=int(block_def['stride']), mode='nearest')
+                module.add_module(f'upsample_{index}', upsample_layer)
+                
+            elif block_def['type'] == 'route':
+                layer_indices = [int(x) for x in block_def['layers'].split(',')]
+                filters = sum(output_filters_history[i] for i in layer_indices)
+                module.add_module(f'route_{index}', nn.Identity())
+                
+            elif block_def['type'] == 'shortcut':
+                module.add_module(f'shortcut_{index}', nn.Identity())
+                
+            elif block_def['type'] == 'yolo':
+                mask_indices = [int(x) for x in block_def['mask'].split(',')]
+                anchor_coords = [int(x) for x in block_def['anchors'].split(',')]
+                anchors = [(anchor_coords[i], anchor_coords[i+1]) for i in range(0, len(anchor_coords), 2)]
+                masked_anchors = [anchors[i] for i in mask_indices]
+                
+                num_classes = int(block_def['classes'])
+                image_size = int(network_info['height'])
+                
+                yolo_layer = YOLOLayer(masked_anchors, num_classes, image_size)
+                module.add_module(f'yolo_{index}', yolo_layer)
+                
             module_list.append(module)
-            output_filters.append(filters if block['type'] != 'yolo' else prev_filters)
-            prev_filters = filters if block['type'] != 'yolo' else prev_filters
-           
+            previous_filters = filters
+            output_filters_history.append(filters)
+            
         return module_list
-   
-    def forward(self, x):
-        outputs = []
+    
+    def forward(self, input_tensor):
+        yolo_outputs = []
         layer_outputs = []
-       
-        for i, (block, module) in enumerate(zip(self.blocks[1:], self.module_list)):
-            if block['type'] in ['convolutional', 'upsample']:
-                x = module(x)
-               
-            elif block['type'] == 'route':
-                layers = block['layers'].split(',')
-                layers = [int(x) for x in layers]
-               
-                if len(layers) == 1:
-                    x = layer_outputs[layers[0]]
-                else:
-                    x = torch.cat([layer_outputs[l] for l in layers], 1)
-                   
-            elif block['type'] == 'shortcut':
-                from_layer = int(block['from'])
-                x = layer_outputs[-1] + layer_outputs[from_layer]
-               
-            elif block['type'] == 'yolo':
-                x = module[0](x)
-                outputs.append(x)
-               
-            layer_outputs.append(x)
-           
-        return torch.cat(outputs, 1)
-   
+        
+        for index, (block_def, module) in enumerate(zip(self.module_definitions[1:], self.module_list)):
+            if block_def['type'] in ['convolutional', 'upsample']:
+                input_tensor = module(input_tensor)
+                
+            elif block_def['type'] == 'route':
+                layer_indices = [int(x) for x in block_def['layers'].split(',')]
+                input_tensor = torch.cat([layer_outputs[i] for i in layer_indices], 1)
+                
+            elif block_def['type'] == 'shortcut':
+                from_layer_index = int(block_def['from'])
+                input_tensor = layer_outputs[-1] + layer_outputs[from_layer_index]
+                
+            elif block_def['type'] == 'yolo':
+                yolo_output = module[0](input_tensor)
+                yolo_outputs.append(yolo_output)
+                
+            layer_outputs.append(input_tensor)
+            
+        return torch.cat(yolo_outputs, 1)
+    
     def load_darknet_weights(self, weights_path):
-        with open(weights_path, 'rb') as f:
-            header = np.fromfile(f, dtype=np.int32, count=5)
-            weights = np.fromfile(f, dtype=np.float32)
-           
+        with open(weights_path, 'rb') as weights_file:
+            # First 5 values are header info
+            _ = np.fromfile(weights_file, dtype=np.int32, count=5)
+            weights = np.fromfile(weights_file, dtype=np.float32)
+            
         print(f"Loading weights from {weights_path}")
-        print(f"Total weights in file: {len(weights)}")
-           
-        ptr = 0
-        for i, (block, module) in enumerate(zip(self.blocks[1:], self.module_list)):
-            if block['type'] == 'convolutional':
+        weights_pointer = 0
+        
+        for index, (block_def, module) in enumerate(zip(self.module_definitions[1:], self.module_list)):
+            if block_def['type'] == 'convolutional':
                 conv_layer = module[0]
-                if 'batch_normalize' in block:
+                if 'batch_normalize' in block_def:
                     bn_layer = module[1]
-                   
-                    # Load BN bias, weights, running mean and var
-                    num_bn_biases = bn_layer.bias.numel()
-                   
-                    # Check if we have enough weights
-                    if ptr + num_bn_biases > len(weights):
-                        raise RuntimeError(f"Not enough weights for BN bias at layer {i}")
-                   
-                    bn_biases = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
-                    ptr += num_bn_biases
-                   
-                    bn_weights = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
-                    ptr += num_bn_biases
-                   
-                    bn_running_mean = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
-                    ptr += num_bn_biases
-                   
-                    bn_running_var = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
-                    ptr += num_bn_biases
-                   
+                    num_bn_params = bn_layer.bias.numel()
+                    
+                    # Load BN bias, weights, running mean, and running var
+                    bn_biases = torch.from_numpy(weights[weights_pointer : weights_pointer + num_bn_params])
+                    weights_pointer += num_bn_params
+                    bn_weights = torch.from_numpy(weights[weights_pointer : weights_pointer + num_bn_params])
+                    weights_pointer += num_bn_params
+                    bn_running_mean = torch.from_numpy(weights[weights_pointer : weights_pointer + num_bn_params])
+                    weights_pointer += num_bn_params
+                    bn_running_var = torch.from_numpy(weights[weights_pointer : weights_pointer + num_bn_params])
+                    weights_pointer += num_bn_params
+                    
+                    # Copy loaded params to the BN layer
                     bn_layer.bias.data.copy_(bn_biases.view_as(bn_layer.bias.data))
                     bn_layer.weight.data.copy_(bn_weights.view_as(bn_layer.weight.data))
                     bn_layer.running_mean.copy_(bn_running_mean.view_as(bn_layer.running_mean))
                     bn_layer.running_var.copy_(bn_running_var.view_as(bn_layer.running_var))
                 else:
-                    # Load conv bias (only present when there's no batch norm)
-                    num_biases = conv_layer.bias.numel()
-                   
-                    # Check if we have enough weights
-                    if ptr + num_biases > len(weights):
-                        raise RuntimeError(f"Not enough weights for conv bias at layer {i}")
-                   
-                    conv_biases = torch.from_numpy(weights[ptr:ptr + num_biases])
-                    ptr += num_biases
+                    # Load conv bias
+                    num_conv_biases = conv_layer.bias.numel()
+                    conv_biases = torch.from_numpy(weights[weights_pointer : weights_pointer + num_conv_biases])
+                    weights_pointer += num_conv_biases
                     conv_layer.bias.data.copy_(conv_biases.view_as(conv_layer.bias.data))
-               
+                
                 # Load conv weights
-                num_weights = conv_layer.weight.numel()
-               
-                # Check if we have enough weights
-                if ptr + num_weights > len(weights):
-                    raise RuntimeError(f"Not enough weights for conv weights at layer {i}. Need {num_weights}, have {len(weights) - ptr}")
-               
-                try:
-                    conv_weights = torch.from_numpy(weights[ptr:ptr + num_weights])
-                    ptr += num_weights
-                    conv_layer.weight.data.copy_(conv_weights.view_as(conv_layer.weight.data))
-                except RuntimeError as e:
-                    print(f"Error at layer {i}: {block}")
-                    print(f"Conv layer shape: {conv_layer.weight.shape}")
-                    print(f"Trying to load {num_weights} weights")
-                    print(f"Available weights: {len(weights) - ptr}")
-                    raise e
-       
-        print(f"Loaded weights: {ptr} / {len(weights)} values used")
+                num_conv_weights = conv_layer.weight.numel()
+                conv_weights = torch.from_numpy(weights[weights_pointer : weights_pointer + num_conv_weights])
+                weights_pointer += num_conv_weights
+                conv_layer.weight.data.copy_(conv_weights.view_as(conv_layer.weight.data))
+                
+        print(f"Loaded weights: {weights_pointer} / {len(weights)} values used")
 
-def preprocess_image(img_path, img_size=416):
-    img = cv2.imread(img_path)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-   
-    h, w = img.shape[:2]
-    scale = min(img_size/w, img_size/h)
-    new_w = int(w * scale)
-    new_h = int(h * scale)
-   
-    img_resized = cv2.resize(img, (new_w, new_h))
-   
-    # Create blank image and paste resized image
-    img_padded = np.full((img_size, img_size, 3), 128, dtype=np.uint8)
-    dw = (img_size - new_w) // 2
-    dh = (img_size - new_h) // 2
-    img_padded[dh:dh+new_h, dw:dw+new_w] = img_resized
-   
-    # Convert to tensor
-    img_tensor = torch.from_numpy(img_padded).float().div(255.0)
-    img_tensor = img_tensor.permute(2, 0, 1).unsqueeze(0)
-   
-    return img_tensor, img
+#---------------------------------------------------------------------------------------------------
 
-def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
+def preprocess_image(image_path, target_size=416):
+    image = cv2.imread(image_path)
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    
+    original_height, original_width = image_rgb.shape[:2]
+    scale = min(target_size / original_width, target_size / original_height)
+    new_width, new_height = int(original_width * scale), int(original_height * scale)
+    
+    resized_image = cv2.resize(image_rgb, (new_width, new_height))
+    
+    # Create a new image with padding
+    padded_image = np.full((target_size, target_size, 3), 128, dtype=np.uint8)
+    width_padding = (target_size - new_width) // 2
+    height_padding = (target_size - new_height) // 2
+    padded_image[height_padding:height_padding + new_height, width_padding:width_padding + new_width] = resized_image
+    
+    # Convert to a PyTorch tensor
+    image_tensor = torch.from_numpy(padded_image).float().div(255.0)
+    image_tensor = image_tensor.permute(2, 0, 1).unsqueeze(0)
+    
+    return image_tensor, image_rgb
+
+#---------------------------------------------------------------------------------------------------
+
+def non_max_suppression(predictions, confidence_threshold=0.5, nms_threshold=0.4):
     """
-    Removes detections with lower object confidence score than 'conf_thres' and performs
-    Non-Maximum Suppression to further filter detections.
-    Returns detections with shape:
-        (x1, y1, x2, y2, object_conf, class_score, class_pred)
+    Performs Non-Maximum Suppression (NMS) on inference results.
+    Returns detections with shape: (x1, y1, x2, y2, object_conf, class_score, class_pred)
     """
-   
-    # Get batch size
-    batch_size = prediction.size(0)
-   
-    # From (center x, center y, width, height) to (x1, y1, x2, y2)
-    prediction[..., :4] = xywh2xyxy(prediction[..., :4])
-   
-    output = []
-   
-    for image_i in range(batch_size):
-        image_pred = prediction[image_i]  # Get predictions for this image
-       
-        # Filter out confidence scores below threshold
-        conf_mask = (image_pred[:, 4] >= conf_thres)
-        image_pred = image_pred[conf_mask]
-       
-        # If none are remaining => process next image
-        if not image_pred.size(0):
+    # Convert bounding box from (center_x, center_y, width, height) to (x1, y1, x2, y2)
+    predictions[..., :4] = convert_box_format_xywh_to_xyxy(predictions[..., :4])
+    
+    final_output = [None] * predictions.size(0)
+    
+    for image_index, image_predictions in enumerate(predictions):
+        # Filter out low-confidence detections
+        confidence_mask = image_predictions[:, 4] >= confidence_threshold
+        image_predictions = image_predictions[confidence_mask]
+        
+        if not image_predictions.size(0):
             continue
-           
-        # Object confidence times class confidence
-        class_confs, class_preds = image_pred[:, 5:].max(1, keepdim=True)
-       
-        # Concatenate
-        detections = torch.cat((image_pred[:, :5], class_confs.float(), class_preds.float()), 1)
-       
-        # Perform non-maximum suppression
-        keep_boxes = []
+            
+        # Combine object confidence with class confidence
+        class_confidences, class_predictions = image_predictions[:, 5:].max(1, keepdim=True)
+        detections = torch.cat((image_predictions[:, :5], class_confidences.float(), class_predictions.float()), 1)
+        
+        # Sort detections by confidence score
+        detections = detections[detections[:, 4].argsort(descending=True)]
+        
+        # Perform NMS
+        final_detections = []
         while detections.size(0):
-            # Get detection with highest score
-            large_overlap = bbox_iou(detections[0, :4].unsqueeze(0), detections[:, :4]) > nms_thres
-            label_match = detections[0, -1] == detections[:, -1]
-           
-            # Indices of boxes with high IoU and matching label
-            invalid = large_overlap & label_match
-            weights = detections[invalid, 4:5]
-           
-            # Merge overlapping bboxes by order of confidence
-            detections[0, :4] = (weights * detections[invalid, :4]).sum(0) / weights.sum()
-            keep_boxes += [detections[0]]
-            detections = detections[~invalid]
-           
-        if keep_boxes:
-            output.extend(keep_boxes)
-           
-    return torch.stack(output) if output else torch.FloatTensor(0, 7)
+            best_detection = detections[0]
+            final_detections.append(best_detection)
+            
+            iou = calculate_bbox_iou(best_detection.unsqueeze(0), detections)
+            
+            # Keep detections with low IoU or different class labels
+            nms_mask = (iou < nms_threshold) | (detections[:, -1] != best_detection[-1])
+            detections = detections[nms_mask]
+            
+        if final_detections:
+            final_output[image_index] = torch.stack(final_detections)
+            
+    return final_output
 
-def xywh2xyxy(x):
-    """Convert bounding box format from [x, y, w, h] to [x1, y1, x2, y2]"""
-    y = x.new(x.shape)
-    y[..., 0] = x[..., 0] - x[..., 2] / 2
-    y[..., 1] = x[..., 1] - x[..., 3] / 2
-    y[..., 2] = x[..., 0] + x[..., 2] / 2
-    y[..., 3] = x[..., 1] + x[..., 3] / 2
-    return y
+#---------------------------------------------------------------------------------------------------
 
-def bbox_iou(box1, box2):
-    # Get coordinates
+def convert_box_format_xywh_to_xyxy(box_xywh):
+    """Converts bounding box from [center_x, center_y, width, height] to [x1, y1, x2, y2]."""
+    box_xyxy = box_xywh.new(box_xywh.shape)
+    box_xyxy[..., 0] = box_xywh[..., 0] - box_xywh[..., 2] / 2
+    box_xyxy[..., 1] = box_xywh[..., 1] - box_xywh[..., 3] / 2
+    box_xyxy[..., 2] = box_xywh[..., 0] + box_xywh[..., 2] / 2
+    box_xyxy[..., 3] = box_xywh[..., 1] + box_xywh[..., 3] / 2
+    return box_xyxy
+
+#---------------------------------------------------------------------------------------------------
+
+def calculate_bbox_iou(box1, box2):
+    """Calculates Intersection over Union (IoU) between two sets of bounding boxes."""
     b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, 0], box1[:, 1], box1[:, 2], box1[:, 3]
     b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, 0], box2[:, 1], box2[:, 2], box2[:, 3]
-   
-    # Intersection area
-    inter_area = torch.clamp(torch.min(b1_x2, b2_x2) - torch.max(b1_x1, b2_x1), min=0) * \
-                 torch.clamp(torch.min(b1_y2, b2_y2) - torch.max(b1_y1, b2_y1), min=0)
-   
-    # Union Area
-    b1_area = (b1_x2 - b1_x1) * (b1_y2 - b1_y1)
-    b2_area = (b2_x2 - b2_x1) * (b2_y2 - b2_y1)
-    union_area = b1_area + b2_area - inter_area + 1e-16
-   
-    return inter_area / union_area
+    
+    # Calculate intersection area
+    inter_x1 = torch.max(b1_x1, b2_x1)
+    inter_y1 = torch.max(b1_y1, b2_y1)
+    inter_x2 = torch.min(b1_x2, b2_x2)
+    inter_y2 = torch.min(b1_y2, b2_y2)
+    intersection_area = torch.clamp(inter_x2 - inter_x1, min=0) * torch.clamp(inter_y2 - inter_y1, min=0)
+    
+    # Calculate union area
+    box1_area = (b1_x2 - b1_x1) * (b1_y2 - b1_y1)
+    box2_area = (b2_x2 - b2_x1) * (b2_y2 - b2_y1)
+    union_area = box1_area + box2_area - intersection_area + 1e-16
+    
+    return intersection_area / union_area
+
+#---------------------------------------------------------------------------------------------------
 
 # COCO class names
 COCO_CLASSES = [
@@ -373,110 +337,93 @@ COCO_CLASSES = [
     'toothbrush'
 ]
 
-def draw_detections(img, detections, img_size=416):
+#---------------------------------------------------------------------------------------------------
+
+def draw_detections(image, detections, input_image_size=416):
+    # Scale detection coordinates back to the original image size
+    original_height, original_width = image.shape[:2]
+    scale = min(input_image_size / original_width, input_image_size / original_height)
+    width_padding = (input_image_size - int(original_width * scale)) // 2
+    height_padding = (input_image_size - int(original_height * scale)) // 2
     
-    # Scale detections back to original image size
-    h, w = img.shape[:2]
-    scale = min(img_size / w, img_size / h)
-    new_w = int(w * scale)
-    new_h = int(h * scale)
-    dw = (img_size - new_w) // 2
-    dh = (img_size - new_h) // 2
-    
-    # Define font and color for OpenCV
     font = cv2.FONT_HERSHEY_SIMPLEX
-    color = (255, 0, 0)  # Red in RGB
+    color = (255, 0, 0) # Red in RGB
     
-    for det in detections:
-        x1, y1, x2, y2, conf, cls_conf, cls = det
+    for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
+        # Rescale coordinates from padded image to original image
+        x1 = int((x1 - width_padding) / scale)
+        y1 = int((y1 - height_padding) / scale)
+        x2 = int((x2 - width_padding) / scale)
+        y2 = int((y2 - height_padding) / scale)
         
-        # Adjust coordinates from padded to original
-        x1 = int((x1 - dw) / scale)
-        y1 = int((y1 - dh) / scale)
-        x2 = int((x2 - dw) / scale)
-        y2 = int((y2 - dh) / scale)
+        # Draw the bounding box
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
         
-        # Draw box with cv2.rectangle
-        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+        # Create and draw the label
+        label = f'{COCO_CLASSES[int(cls_pred)]}: {conf:.2f}'
+        cv2.putText(image, label, (x1, y1 - 10), font, 0.5, color, 2)
         
-        # Create label and draw with cv2.putText
-        label = f'{COCO_CLASSES[int(cls)]}: {conf:.2f}'
-        cv2.putText(img, label, (x1, y1 - 10), font, 0.5, color, 2)
-        
-    # The 'img' array is modified in-place, so just return it
-    return img
+    return image
+
+#---------------------------------------------------------------------------------------------------
 
 # Main detection function
-def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, nms_thres=0.4):
-    # Check CUDA availability
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+def run_detection(config_path, weights_path, image_path, output_path, confidence_threshold=0.5, nms_threshold=0.4):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
-    if device.type == 'cuda':
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
-   
+    
     # Load model
-    model = Darknet(cfg_path)
+    model = Darknet(config_path)
     model.load_darknet_weights(weights_path)
     model.eval()
-    model = model.to(device)  # Move model to GPU
-   
+    model.to(device)
+    
     # Preprocess image
-    img_tensor, original_img = preprocess_image(img_path)
-    img_tensor = img_tensor.to(device)  # Move input to GPU
-   
-    # Warm up GPU (optional but recommended for accurate timing)
-    if device.type == 'cuda':
-        for _ in range(3):
-            _ = model(img_tensor)
-        torch.cuda.synchronize()
-   
-    # Run inference with timing
+    image_tensor, original_image = preprocess_image(image_path)
+    image_tensor = image_tensor.to(device)
+    
+    # Run inference
     start_time = time.time()
-   
     with torch.no_grad():
-        detections = model(img_tensor)
-        detections = non_max_suppression(detections, conf_thres, nms_thres)
-   
-    if device.type == 'cuda':
-        torch.cuda.synchronize()
-   
+        raw_detections = model(image_tensor)
+        final_detections = non_max_suppression(raw_detections, confidence_threshold, nms_threshold)
     inference_time = time.time() - start_time
     print(f"Inference time: {inference_time*1000:.2f} ms")
-   
- # Draw detections
-    if len(detections) > 0:
-        # The detections are drawn on the 'original_img' (which is in RGB format)
-        result_img = draw_detections(original_img, detections.cpu()) # Ensure detections are on CPU
+    
+    # Draw detections on the image
+    result_image = original_image.copy() # Avoid modifying the original image array
+    if final_detections[0] is not None:
+        detections_on_cpu = final_detections[0].cpu()
+        result_image = draw_detections(result_image, detections_on_cpu)
     else:
-        result_img = original_img
-        print("No objects detected")
+        print("No objects detected.")
     
-    # Convert result from RGB back to BGR for OpenCV saving
-    result_bgr = cv2.cvtColor(result_img, cv2.COLOR_RGB2BGR)
-    
-    # Save result using cv2.imwrite
+    # Convert from RGB (used by Pillow/Matplotlib) to BGR (used by OpenCV)
+    result_bgr = cv2.cvtColor(result_image, cv2.COLOR_RGB2BGR)
     cv2.imwrite(output_path, result_bgr)
     print(f"Result saved to {output_path}")
     
-    return detections
+    return final_detections
+
+#---------------------------------------------------------------------------------------------------
 
 # Example usage
 if __name__ == "__main__":
-   
-    # Paths
-    cfg_path = "yolov3.cfg"
+    # Define paths
+    config_path = "yolov3.cfg"
     weights_path = "yolov3.weights"
-    img_path = "test_image.jpg"  # Your input image
-    output_path = "detected_image.jpg"  # Output path
-   
-    # Run detection
-    detections = detect_image(cfg_path, weights_path, img_path, output_path)
-   
-    # Print detections
-    if len(detections) > 0:
-        print(f"\nDetected {len(detections)} objects:")
-        for det in detections:
-            cls = int(det[6])
-            conf = det[4]
-            print(f"- {COCO_CLASSES[cls]}: {conf:.2f}")
-
+    image_path = "test_image.jpg"
+    output_path = "detected_image.jpg"
+    
+    # Run the detection
+    all_detections = run_detection(config_path, weights_path, image_path, output_path)
+    
+    # Print detected objects for the first image
+    image_detections = all_detections[0]
+    if image_detections is not None:
+        print(f"\nDetected {len(image_detections)} objects:")
+        for detection in image_detections:
+            # Unpack detection tensor: x1, y1, x2, y2, obj_conf, class_score, class_pred
+            confidence = detection[4]
+            class_index = int(detection[6])
+            print(f"- {COCO_CLASSES[class_index]}: Confidence {confidence:.2f}")
