@@ -4,7 +4,6 @@ import torchvision.ops as ops  # Added for optimised NMS
 import numpy as np
 import time
 import cv2
-import os
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.patches import Rectangle
@@ -12,8 +11,8 @@ import argparse
 
 class YOLOLayer(nn.Module):
     """
-    YOLO detection layer that processes feature maps and outputs bounding box predictions.
-    This layer is responsible for converting the raw CNN output into interpretable object detections.
+YOLO detection layer that processes feature maps and outputs bounding box predictions.
+This layer is responsible for converting the raw CNN output into interpretable object detections.
     """
     def __init__(self, anchors, num_classes, img_size):
         super(YOLOLayer, self).__init__()
@@ -436,7 +435,7 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
    
     # Convert from centre format to corner format for NMS
     # From (centre x, centre y, width, height) to (x1, y1, x2, y2)
-    prediction[..., :4] = xywh2xyxy(prediction[..., :4])
+    prediction[..., :4] = box_centre_to_corners(prediction[..., :4])
    
     output = []
    
@@ -464,9 +463,9 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
         unique_classes = detections[:, -1].unique()
         
         # Perform NMS separately for each class (standard practice in object detection)
-        for c in unique_classes:
+        for class_index in unique_classes:
             # Get detections for this specific class
-            detections_class = detections[detections[:, -1] == c]
+            detections_class = detections[detections[:, -1] == class_index]
             
             # Use torchvision's optimised NMS implementation
             # NMS expects: boxes [N, 4], scores [N], iou_threshold
@@ -482,7 +481,7 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
            
     return torch.stack(output) if output else torch.FloatTensor(0, 7)
 
-def xywh2xyxy(x):
+def box_centre_to_corners(x):
     """
     Convert bounding box format from centre coordinates to corner coordinates.
     
@@ -498,6 +497,26 @@ def xywh2xyxy(x):
     y[..., 2] = x[..., 0] + x[..., 2] / 2  # x2 = x_centre + width/2
     y[..., 3] = x[..., 1] + x[..., 3] / 2  # y2 = y_centre + height/2
     return y
+
+def scale_coords_to_original_image(coords, original_shape, padded_size):
+    """
+    Rescales coordinates from the padded image space (used for network input)
+    back to the original image space.
+    """
+    h, w = original_shape
+    scale = min(padded_size / w, padded_size / h)
+    dw = (padded_size - int(w * scale)) // 2
+    dh = (padded_size - int(h * scale)) // 2
+
+    x1, y1, x2, y2 = coords
+
+    x1 = (x1 - dw) / scale
+    y1 = (y1 - dh) / scale
+    x2 = (x2 - dw) / scale
+    y2 = (y2 - dh) / scale
+    
+    return x1, y1, x2, y2
+
 
 # COCO class names - 80 object categories
 COCO_CLASSES = [
@@ -529,17 +548,6 @@ def draw_detections(img, detections, img_size=416):
         img: Image with drawn detections (modified in-place)
     """
     
-    # Calculate scaling factors to map from padded image back to original image
-    # Need to reverse the letterbox transformation
-    h, w = img.shape[:2]
-    scale = min(img_size / w, img_size / h)  # Same scale used in preprocessing
-    new_w = int(w * scale)
-    new_h = int(h * scale)
-    # Calculate padding that was added during preprocessing
-    dw = (img_size - new_w) // 2
-    dh = (img_size - new_h) // 2
-    
-    
     colour = (0, 255, 0)  # Green in RGB format
     
     # Process each detection
@@ -547,41 +555,32 @@ def draw_detections(img, detections, img_size=416):
         x1, y1, x2, y2, conf, cls_conf, cls = det
         
         # Transform coordinates from padded image space back to original image space
-        # First, subtract padding offset, then scale back to original size
-        x1 = int((x1 - dw) / scale)
-        y1 = int((y1 - dh) / scale)
-        x2 = int((x2 - dw) / scale)
-        y2 = int((y2 - dh) / scale)
+        box_coords = (x1, y1, x2, y2)
+        x1, y1, x2, y2 = scale_coords_to_original_image(box_coords, img.shape[:2], img_size)
         
         # Draw bounding box rectangle
-        cv2.rectangle(img, (x1, y1), (x2, y2), colour, 2)
+        cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), colour, 2)
         
         # Create label with class name and confidence score
         label = f'{COCO_CLASSES[int(cls)]}: {conf:.2f}'
         # Draw label above the bounding box
-        cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_DUPLEX, 0.5, 255)
+        cv2.putText(img, label, (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_DUPLEX, 0.5, 255)
         
     # Image is modified in-place
     return img
 
-def visualize_raw_predictions(prediction, img, conf_threshold=0.1, max_boxes=50):
+def visualise_raw_predictions(prediction, img, conf_threshold=0.1, max_boxes=50):
     """
-    Visualize ALL predictions before NMS to see what the network actually detects.
+    Visualise ALL predictions before NMS to see what the network actually detects.
     
     FIXED: Added proper coordinate transformation from padded space to original image space
     """
     # Convert to corner format
     pred_copy = prediction.clone()
-    pred_copy[..., :4] = xywh2xyxy(pred_copy[..., :4])
+    pred_copy[..., :4] = box_centre_to_corners(pred_copy[..., :4])
     
-    # IMPORTANT: Transform from padded image space (416x416) to original image space
     h, w = img.shape[:2]
     img_size = 416  # Assuming standard YOLO input size
-    scale = min(img_size / w, img_size / h)
-    new_w = int(w * scale)
-    new_h = int(h * scale)
-    dw = (img_size - new_w) // 2
-    dh = (img_size - new_h) // 2
     
     fig, ax = plt.subplots(1, figsize=(12, 8))
     ax.imshow(img)
@@ -591,13 +590,10 @@ def visualize_raw_predictions(prediction, img, conf_threshold=0.1, max_boxes=50)
     for i in range(pred_copy.size(1)):
         objectness = pred_copy[0, i, 4]
         if objectness > conf_threshold and boxes_shown < max_boxes:
-            x1, y1, x2, y2 = pred_copy[0, i, :4]
+            box_coords = pred_copy[0, i, :4]
             
             # Transform coordinates back to original image space
-            x1 = float((x1 - dw) / scale)
-            y1 = float((y1 - dh) / scale)
-            x2 = float((x2 - dw) / scale)
-            y2 = float((y2 - dh) / scale)
+            x1, y1, x2, y2 = scale_coords_to_original_image(box_coords, img.shape[:2], img_size)
             
             # Clip to image boundaries
             x1, y1 = max(0, x1), max(0, y1)
@@ -608,16 +604,16 @@ def visualize_raw_predictions(prediction, img, conf_threshold=0.1, max_boxes=50)
             
             # Draw box with transparency based on confidence
             alpha = float(objectness) * 0.7
-            color = plt.cm.rainbow(int(class_preds) / 80)[:3]
+            colour = plt.cm.rainbow(int(class_preds) / 80)[:3]
             
             rect = Rectangle((x1, y1), x2-x1, y2-y1, 
-                           linewidth=2, edgecolor=color, 
+                           linewidth=2, edgecolor=colour, 
                            facecolor='none', alpha=alpha)
             ax.add_patch(rect)
             
             # Add label
             label = f'{COCO_CLASSES[int(class_preds)]}: {objectness:.2f}'
-            ax.text(x1, y1-5, label, color=color, fontsize=8, alpha=alpha)
+            ax.text(x1, y1-5, label, color=colour, fontsize=8, alpha=alpha)
             boxes_shown += 1
     
     ax.set_title(f'Raw Predictions (before NMS) - Showing {boxes_shown}/{pred_copy.size(1)} boxes')
@@ -630,7 +626,7 @@ def print_detection_details(detections, top_k=5):
     Print detailed information about each detection including full class probability vectors.
     """
     if len(detections) == 0:
-        print("No detections to analyze.")
+        print("No detections to analyse.")
         return
         
     print("\n" + "="*80)
@@ -653,7 +649,7 @@ def print_detection_statistics(predictions):
     NEW FUNCTION: Print statistical analysis of detections
     """
     if len(predictions) == 0:
-        print("No predictions to analyze.")
+        print("No predictions to analyse.")
         return
     
     print("\n" + "="*60)
@@ -687,7 +683,7 @@ def print_detection_statistics(predictions):
     print(f"  Height: mean={heights.mean():.1f}, std={heights.std():.1f}, "
           f"range=[{heights.min():.1f}, {heights.max():.1f}]")
 
-def analyze_predictions_interactive(model, img_tensor, img, conf_thres=0.5):
+def analyse_predictions_interactive(model, img_tensor, img, conf_thres=0.5):
     """
     Interactive analysis mode - allows detailed inspection of network predictions.
     
@@ -734,7 +730,7 @@ def analyze_predictions_interactive(model, img_tensor, img, conf_thres=0.5):
         print("\nOptions:")
         print("  1. Show class probability vector for a detection")
         print("  2. Show top predictions for each class")
-        print("  3. Visualize confidence heatmap")
+        print("  3. Visualise confidence heatmap")
         print("  4. Show raw predictions before NMS")
         print("  5. Show detection statistics")
         print("  q. Quit interactive mode")
@@ -770,12 +766,12 @@ def analyze_predictions_interactive(model, img_tensor, img, conf_thres=0.5):
             show_top_predictions_per_class(filtered_preds)
             
         elif choice == '3':
-            # Visualize confidence heatmap
-            visualize_confidence_heatmap(raw_predictions, img)
+            # Visualise confidence heatmap
+            visualise_confidence_heatmap(raw_predictions, img)
             
         elif choice == '4':
             # Show raw predictions
-            visualize_raw_predictions(raw_predictions, img)
+            visualise_raw_predictions(raw_predictions, img)
             
         elif choice == '5':
             # Show detection statistics
@@ -835,7 +831,7 @@ def show_top_predictions_per_class(predictions, top_k=3):
     print("\nTop predictions for each class:")
     print("-" * 80)
     
-    # Organize predictions by class
+    # Organise predictions by class
     class_predictions = {i: [] for i in range(80)}
     
     for pred in predictions:
@@ -862,7 +858,7 @@ def show_top_predictions_per_class(predictions, top_k=3):
                       f"(obj: {p['objectness']:.3f}, "
                       f"cls: {p['class_prob']:.3f})")
 
-def visualize_confidence_heatmap(predictions, img):
+def visualise_confidence_heatmap(predictions, img):
     """
     Create a heatmap showing where the network has high confidence.
     
@@ -874,39 +870,31 @@ def visualize_confidence_heatmap(predictions, img):
     
     # Assuming standard YOLO input size
     img_size = 416
-    scale = min(img_size / w, img_size / h)
-    new_w = int(w * scale)
-    new_h = int(h * scale)
-    dw = (img_size - new_w) // 2
-    dh = (img_size - new_h) // 2
     
     preds = predictions[0]  # First image
     preds_copy = preds.clone()
-    preds_copy[..., :4] = xywh2xyxy(preds_copy[..., :4])
+    preds_copy[..., :4] = box_centre_to_corners(preds_copy[..., :4])
     
     # Count boxes processed
     boxes_processed = 0
     
     for pred in preds_copy:
         if pred[4] > 0.1:  # Objectness threshold
-            x1, y1, x2, y2 = pred[:4]
+            box_coords = pred[:4]
             
             # Transform back to original image coordinates
-            x1 = int((x1 - dw) / scale)
-            y1 = int((y1 - dh) / scale)
-            x2 = int((x2 - dw) / scale)
-            y2 = int((y2 - dh) / scale)
+            x1, y1, x2, y2 = scale_coords_to_original_image(box_coords, img.shape[:2], img_size)
             
             # Ensure coordinates are within image bounds
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(w, x2), min(h, y2)
+            x1, y1 = max(0, int(x1)), max(0, int(y1))
+            x2, y2 = min(w, int(x2)), min(h, int(y2))
             
             if x2 > x1 and y2 > y1:  # Valid box
                 # Add confidence to heatmap
                 heatmap[y1:y2, x1:x2] += pred[4].cpu().numpy()
                 boxes_processed += 1
     
-    # Normalize heatmap
+    # Normalise heatmap
     if heatmap.max() > 0:
         heatmap = heatmap / heatmap.max()
     
@@ -979,7 +967,7 @@ def detect_image_interactive(cfg_path, weights_path, img_path, output_path,
     
     if interactive:
         # Enter interactive analysis mode
-        analyze_predictions_interactive(model, img_tensor, original_img, conf_thres)
+        analyse_predictions_interactive(model, img_tensor, original_img, conf_thres)
     
     # Regular detection
     start_time = time.time()
@@ -997,9 +985,9 @@ def detect_image_interactive(cfg_path, weights_path, img_path, output_path,
     # Print detailed detection info
     print_detection_details(detections)
     
-    # Visualize raw predictions if in verbose mode
+    # Visualise raw predictions if in verbose mode
     if interactive and len(detections) > 0:
-        visualize_raw_predictions(raw_detections, original_img)
+        visualise_raw_predictions(raw_detections, original_img)
     
     # Draw and save results
     if len(detections) > 0:
