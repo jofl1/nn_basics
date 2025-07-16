@@ -495,41 +495,6 @@ def xywh2xyxy(x):
     y[..., 3] = x[..., 1] + x[..., 3] / 2  # y2 = y_centre + height/2
     return y
 
-def bbox_iou(box1, box2):
-    """
-    Calculate Intersection over Union (IoU) between sets of bounding boxes.
-    Used internally by NMS to determine box overlap.
-    
-    Args:
-        box1: Tensor of shape [N, 4] in corner format [x1, y1, x2, y2]
-        box2: Tensor of shape [M, 4] in corner format [x1, y1, x2, y2]
-        
-    Returns:
-        IoU matrix of shape [N, M] where element (i,j) is IoU between box1[i] and box2[j]
-    """
-    # Extract coordinates for all boxes
-    b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, 0], box1[:, 1], box1[:, 2], box1[:, 3]
-    b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, 0], box2[:, 1], box2[:, 2], box2[:, 3]
-   
-    # Calculate intersection area
-    # Find the coordinates of the intersection rectangle
-    inter_x1 = torch.max(b1_x1.unsqueeze(1), b2_x1)  # Broadcasting for pairwise comparison
-    inter_y1 = torch.max(b1_y1.unsqueeze(1), b2_y1)
-    inter_x2 = torch.min(b1_x2.unsqueeze(1), b2_x2)
-    inter_y2 = torch.min(b1_y2.unsqueeze(1), b2_y2)
-    
-    # Calculate intersection area (clamp ensures non-negative)
-    inter_area = torch.clamp(inter_x2 - inter_x1, min=0) * \
-                 torch.clamp(inter_y2 - inter_y1, min=0)
-   
-    # Calculate union area
-    b1_area = (b1_x2 - b1_x1) * (b1_y2 - b1_y1)  # Area of boxes in set 1
-    b2_area = (b2_x2 - b2_x1) * (b2_y2 - b2_y1)  # Area of boxes in set 2
-    # Union = Area1 + Area2 - Intersection 
-    union_area = b1_area.unsqueeze(1) + b2_area - inter_area + 1e-16
-   
-    return inter_area / union_area
-
 # COCO class names - 80 object categories
 COCO_CLASSES = [
     'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck',
