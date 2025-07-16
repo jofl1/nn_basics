@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore")
 torch.backends.cudnn.benchmark = True
 
 
-def def train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors):
+def  train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors):
     # Creates a new progress bar
     loop = tqdm(train_loader, leave=True)
     losses = []
