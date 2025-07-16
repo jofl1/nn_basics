@@ -5,6 +5,10 @@ import numpy as np
 import time
 import cv2
 import os
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from matplotlib.patches import Rectangle
+import argparse
 
 class YOLOLayer(nn.Module):
     """
@@ -560,90 +564,339 @@ def draw_detections(img, detections, img_size=416):
     # Image is modified in-place
     return img
 
-# Main detection function
-def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, nms_thres=0.4):
+def visualize_raw_predictions(prediction, img, conf_threshold=0.1, max_boxes=50):
     """
-    Run YOLO object detection on a single image.
+    Visualize ALL predictions before NMS to see what the network actually detects.
+    Shows multiple overlapping boxes that would normally be suppressed.
+    """
+    # Convert to corner format
+    pred_copy = prediction.clone()
+    pred_copy[..., :4] = xywh2xyxy(pred_copy[..., :4])
     
-    Args:
-        cfg_path: Path to YOLO configuration file (.cfg)
-        weights_path: Path to pre-trained weights file (.weights)
-        img_path: Path to input image
-        output_path: Path to save output image with detections
-        conf_thres: Confidence threshold for object detection
-        nms_thres: IoU threshold for Non-Maximum Suppression
-        
-    Returns:
-        detections: Tensor of final detections after NMS
+    fig, ax = plt.subplots(1, figsize=(12, 8))
+    ax.imshow(img)
+    
+    # Get all predictions above low threshold (to see what network sees)
+    for i in range(pred_copy.size(1)):
+        objectness = pred_copy[0, i, 4]
+        if objectness > conf_threshold and i < max_boxes:
+            x1, y1, x2, y2 = pred_copy[0, i, :4]
+            
+            # Get best class
+            class_confs, class_preds = pred_copy[0, i, 5:].max(0)
+            
+            # Draw box with transparency based on confidence
+            alpha = float(objectness) * 0.7
+            color = plt.cm.rainbow(int(class_preds) / 80)[:3]
+            
+            rect = Rectangle((x1, y1), x2-x1, y2-y1, 
+                           linewidth=2, edgecolor=color, 
+                           facecolor='none', alpha=alpha)
+            ax.add_patch(rect)
+            
+            # Add label
+            label = f'{COCO_CLASSES[int(class_preds)]}: {objectness:.2f}'
+            ax.text(x1, y1-5, label, color=color, fontsize=8, alpha=alpha)
+    
+    ax.set_title(f'Raw Predictions (before NMS) - Total: {pred_copy.size(1)} boxes')
+    plt.axis('off')
+    plt.tight_layout()
+    plt.show()
+
+def print_detection_details(detections, top_k=5):
     """
-    # Check CUDA availability and set device
+    Print detailed information about each detection including full class probability vectors.
+    """
+    if len(detections) == 0:
+        print("No detections to analyze.")
+        return
+        
+    print("\n" + "="*80)
+    print("DETAILED DETECTION ANALYSIS")
+    print("="*80)
+    
+    for idx, det in enumerate(detections):
+        x1, y1, x2, y2, objectness, cls_conf, cls_id = det
+        
+        print(f"\nDetection #{idx + 1}:")
+        print(f"  Class: {COCO_CLASSES[int(cls_id)]} (ID: {int(cls_id)})")
+        print(f"  Objectness Score: {objectness:.4f}")
+        print(f"  Class Confidence: {cls_conf:.4f}")
+        print(f"  Combined Score: {objectness * cls_conf:.4f}")
+        print(f"  Bounding Box: ({int(x1)}, {int(y1)}) to ({int(x2)}, {int(y2)})")
+        print(f"  Box Size: {int(x2-x1)}x{int(y2-y1)} pixels")
+
+def analyze_predictions_interactive(model, img_tensor, img, conf_thres=0.5):
+    """
+    Interactive analysis mode - allows detailed inspection of network predictions.
+    """
+    with torch.no_grad():
+        raw_predictions = model(img_tensor)
+    
+    print("\n" + "="*80)
+    print("INTERACTIVE YOLO ANALYSIS MODE")
+    print("="*80)
+    
+    # Get predictions for first image in batch
+    predictions = raw_predictions[0]
+    
+    # Filter by confidence
+    conf_mask = predictions[:, 4] > conf_thres
+    filtered_preds = predictions[conf_mask]
+    
+    print(f"\nTotal predictions: {predictions.size(0)}")
+    print(f"Predictions above {conf_thres} confidence: {filtered_preds.size(0)}")
+    
+    if filtered_preds.size(0) == 0:
+        print("No predictions above threshold. Lower the threshold to see more.")
+        return
+    
+    # Interactive loop
+    while True:
+        print("\nOptions:")
+        print("  1. Show class probability vector for a detection")
+        print("  2. Show top predictions for each class")
+        print("  3. Visualize confidence heatmap")
+        print("  4. Show raw predictions before NMS")
+        print("  q. Quit interactive mode")
+        
+        choice = input("\nEnter choice: ").strip()
+        
+        if choice == 'q':
+            break
+            
+        elif choice == '1':
+            # Show full class vector for specific detection
+            for i, pred in enumerate(filtered_preds[:10]):  # Show first 10
+                objectness = pred[4]
+                class_probs = pred[5:]
+                best_class = class_probs.argmax()
+                print(f"\n{i}: {COCO_CLASSES[int(best_class)]} (obj: {objectness:.3f})")
+            
+            try:
+                det_idx = int(input("\nEnter detection index: "))
+                if 0 <= det_idx < filtered_preds.size(0):
+                    show_class_probabilities(filtered_preds[det_idx])
+                else:
+                    print("Invalid index.")
+            except:
+                print("Invalid input.")
+                
+        elif choice == '2':
+            # Show top predictions for each class
+            show_top_predictions_per_class(filtered_preds)
+            
+        elif choice == '3':
+            # Visualize confidence heatmap
+            visualize_confidence_heatmap(raw_predictions, img)
+            
+        elif choice == '4':
+            # Show raw predictions
+            visualize_raw_predictions(raw_predictions, img)
+
+def show_class_probabilities(detection, top_k=10):
+    """
+    Display the full 80-element class probability vector for a detection.
+    Highlights the maximum value and shows top-k classes.
+    """
+    class_probs = detection[5:].cpu().numpy()
+    objectness = detection[4].cpu().numpy()
+    
+    print(f"\nObjectness Score: {objectness:.4f}")
+    print("\nFull Class Probability Vector (80 classes):")
+    print("-" * 60)
+    
+    # Find top classes
+    top_indices = class_probs.argsort()[-top_k:][::-1]
+    
+    # Print all probabilities with highlighting
+    for i in range(80):
+        prob = class_probs[i]
+        class_name = COCO_CLASSES[i]
+        
+        # Highlight top prediction
+        if i == top_indices[0]:
+            print(f">>> {i:2d}. {class_name:20s}: {prob:8.6f} <<<  MAX")
+        elif i in top_indices:
+            print(f"    {i:2d}. {class_name:20s}: {prob:8.6f}  *")
+        else:
+            print(f"    {i:2d}. {class_name:20s}: {prob:8.6f}")
+    
+    print("\nTop-10 Classes Summary:")
+    for rank, idx in enumerate(top_indices):
+        print(f"  {rank+1}. {COCO_CLASSES[idx]:20s}: {class_probs[idx]:.6f}")
+
+def show_top_predictions_per_class(predictions, top_k=3):
+    """
+    For each COCO class, show the top-k most confident predictions.
+    """
+    print("\nTop predictions for each class:")
+    print("-" * 80)
+    
+    # Organize predictions by class
+    class_predictions = {i: [] for i in range(80)}
+    
+    for pred in predictions:
+        objectness = pred[4]
+        class_probs = pred[5:]
+        
+        for class_id in range(80):
+            score = objectness * class_probs[class_id]
+            if score > 0.01:  # Only consider meaningful scores
+                class_predictions[class_id].append({
+                    'score': score.item(),
+                    'objectness': objectness.item(),
+                    'class_prob': class_probs[class_id].item(),
+                    'bbox': pred[:4].cpu().numpy()
+                })
+    
+    # Show top predictions for each class
+    for class_id, preds in class_predictions.items():
+        if preds:
+            preds_sorted = sorted(preds, key=lambda x: x['score'], reverse=True)[:top_k]
+            print(f"\n{COCO_CLASSES[class_id]}:")
+            for i, p in enumerate(preds_sorted):
+                print(f"  {i+1}. Score: {p['score']:.4f} "
+                      f"(obj: {p['objectness']:.3f}, "
+                      f"cls: {p['class_prob']:.3f})")
+
+def visualize_confidence_heatmap(predictions, img):
+    """
+    Create a heatmap showing where the network has high confidence.
+    """
+    # Create heatmap based on objectness scores
+    h, w = img.shape[:2]
+    heatmap = np.zeros((h, w))
+    
+    preds = predictions[0]  # First image
+    preds_copy = preds.clone()
+    preds_copy[..., :4] = xywh2xyxy(preds_copy[..., :4])
+    
+    for pred in preds_copy:
+        if pred[4] > 0.1:  # Objectness threshold
+            x1, y1, x2, y2 = pred[:4].int()
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w, x2), min(h, y2)
+            
+            # Add confidence to heatmap
+            heatmap[y1:y2, x1:x2] += pred[4].cpu().numpy()
+    
+    # Normalize and display
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    
+    ax1.imshow(img)
+    ax1.set_title('Original Image')
+    ax1.axis('off')
+    
+    im = ax2.imshow(heatmap, cmap='hot', alpha=0.8)
+    ax2.imshow(img, alpha=0.3)
+    ax2.set_title('Objectness Confidence Heatmap')
+    ax2.axis('off')
+    
+    plt.colorbar(im, ax=ax2, fraction=0.046, pad=0.04)
+    plt.tight_layout()
+    plt.show()
+
+def print_model_stats(model):
+    """
+    Print statistics about the model architecture.
+    """
+    print("\n" + "="*80)
+    print("YOLO MODEL STATISTICS")
+    print("="*80)
+    
+    total_params = 0
+    yolo_layers = []
+    
+    for i, (block, module) in enumerate(zip(model.blocks[1:], model.module_list)):
+        if block['type'] == 'yolo':
+            yolo_layers.append(i)
+            anchors = module[0].anchors
+            print(f"\nYOLO Layer {len(yolo_layers)} (Layer {i}):")
+            print(f"  Anchors: {anchors}")
+            print(f"  Stride: {module[0].stride if hasattr(module[0], 'stride') else 'N/A'}")
+        
+        # Count parameters
+        for m in module.modules():
+            if isinstance(m, (nn.Conv2d, nn.BatchNorm2d, nn.Linear)):
+                total_params += sum(p.numel() for p in m.parameters())
+    
+    print(f"\nTotal Parameters: {total_params:,}")
+    print(f"Total YOLO Detection Layers: {len(yolo_layers)}")
+
+# Modified main detection function with interactive mode
+def detect_image_interactive(cfg_path, weights_path, img_path, output_path, 
+                           conf_thres=0.5, nms_thres=0.4, interactive=False):
+    """
+    Enhanced detection function with interactive analysis mode.
+    """
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
-    if device.type == 'cuda':
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
-   
-    # Load and initialise model
+    
+    # Load model
     model = Darknet(cfg_path)
     model.load_darknet_weights(weights_path)
-    model.eval()  # Set to evaluation mode (disables dropout, etc.)
-    model = model.to(device)  # Move model to GPU if available
-   
-    # Preprocess input image
+    model.eval()
+    model = model.to(device)
+    
+    # Print model statistics
+    print_model_stats(model)
+    
+    # Preprocess image
     img_tensor, original_img = preprocess_image(img_path)
-    img_tensor = img_tensor.to(device)  # Move input tensor to same device as model
-   
-    # Warm up GPU 
-    # Run a few forward passes to ensure CUDA kernels are loaded
-    if device.type == 'cuda':
-        for _ in range(3):
-            _ = model(img_tensor)
-        torch.cuda.synchronize()  # Wait for all GPU operations to complete
-   
-    # Run actual inference with timing
+    img_tensor = img_tensor.to(device)
+    
+    if interactive:
+        # Enter interactive analysis mode
+        analyze_predictions_interactive(model, img_tensor, original_img, conf_thres)
+    
+    # Regular detection
     start_time = time.time()
-   
-    with torch.no_grad():  # Disable gradient computation for inference
-        detections = model(img_tensor)  # Forward pass through network
-        detections = non_max_suppression(detections, conf_thres, nms_thres)  # Apply NMS
-   
+    
+    with torch.no_grad():
+        raw_detections = model(img_tensor)
+        detections = non_max_suppression(raw_detections, conf_thres, nms_thres)
+    
     if device.type == 'cuda':
-        torch.cuda.synchronize()  # Ensure GPU operations are complete for accurate timing
-   
+        torch.cuda.synchronize()
+    
     inference_time = time.time() - start_time
-    print(f"Inference time: {inference_time*1000:.2f} ms")
-   
-    # Draw detections on original image
+    print(f"\nInference time: {inference_time*1000:.2f} ms")
+    
+    # Print detailed detection info
+    print_detection_details(detections)
+    
+    # Visualize raw predictions if in verbose mode
+    if interactive and len(detections) > 0:
+        visualize_raw_predictions(raw_detections, original_img)
+    
+    # Draw and save results
     if len(detections) > 0:
-        # Draw_detections modifies the image in-place
-        # Move detections to CPU for drawing (OpenCV uses CPU)
         result_img = draw_detections(original_img, detections.cpu())
     else:
         result_img = original_img
         print("No objects detected")
     
-    # Save result image
-    # OpenCV expects BGR format for saving, so convert from RGB
     result_bgr = cv2.cvtColor(result_img, cv2.COLOR_RGB2BGR)
     cv2.imwrite(output_path, result_bgr)
-    print(f"Result saved to {output_path}")
+    print(f"\nResult saved to {output_path}")
     
     return detections
 
 if __name__ == "__main__":
-   
-    # File paths
-    cfg_path = "yolov3.cfg"
-    weights_path = "yolov3.weights"
-    img_path = "test_image.jpg"  
-    output_path = "detected_image.jpg"  
-   
-    # Run detection
-    detections = detect_image(cfg_path, weights_path, img_path, output_path)
-   
-    # Print detection summary
-    if len(detections) > 0:
-        print(f"\nDetected {len(detections)} objects:")
-        for det in detections:
-            cls = int(det[6])  # Class ID
-            conf = det[4]      # Objectness confidence
-            print(f"- {COCO_CLASSES[cls]}: {conf:.2f}")
+    parser = argparse.ArgumentParser(description='YOLOv3 Object Detection with Debug Features')
+    parser.add_argument('--cfg', default='yolov3.cfg', help='Path to config file')
+    parser.add_argument('--weights', default='yolov3.weights', help='Path to weights file')
+    parser.add_argument('--image', default='test_image.jpg', help='Path to input image')
+    parser.add_argument('--output', default='detected_image.jpg', help='Path to output image')
+    parser.add_argument('--conf-thres', type=float, default=0.5, help='Confidence threshold')
+    parser.add_argument('--nms-thres', type=float, default=0.4, help='NMS threshold')
+    parser.add_argument('-i', '--interactive', action='store_true', help='Interactive analysis mode')
+    
+    args = parser.parse_args()
+    
+    # Run detection with interactive mode if specified
+    detections = detect_image_interactive(
+        args.cfg, args.weights, args.image, args.output,
+        args.conf_thres, args.nms_thres, args.interactive
+    )
