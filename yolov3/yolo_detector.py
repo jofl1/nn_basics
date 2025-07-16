@@ -571,7 +571,7 @@ def draw_detections(img, detections, img_size=416):
     dh = (img_size - new_h) // 2
     
     
-    colour = (0, 255, 0)  # Red in RGB format
+    colour = (0, 255, 0)  # Green in RGB format
     
     # Process each detection
     for det in detections:
