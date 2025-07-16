@@ -570,6 +570,7 @@ def draw_detections(img, detections, img_size=416):
     dw = (img_size - new_w) // 2
     dh = (img_size - new_h) // 2
     
+    
     colour = (0, 255, 0)  # Red in RGB format
     
     # Process each detection
@@ -589,7 +590,7 @@ def draw_detections(img, detections, img_size=416):
         # Create label with class name and confidence score
         label = f'{COCO_CLASSES[int(cls)]}: {conf:.2f}'
         # Draw label above the bounding box
-        cv2.putText(img, label, (x1, y1 - 10), 0.5, colour, 2)
+        cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_DUPLEX, 0.5, 255)
         
     # Image is modified in-place
     return img
