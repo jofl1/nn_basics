@@ -245,7 +245,7 @@ class Darknet(nn.Module):
             Concatenated detections from all YOLO layers
         """
         outputs = []  # Collect outputs from YOLO layers
-        layer_outputs = []  # Store outputs from all layers (needed for route/shortcut)
+        layer_outputs = []  # Store outputs from all layers
        
         # Process each layer sequentially
         for i, (block, module) in enumerate(zip(self.blocks[1:], self.module_list)):
@@ -266,18 +266,18 @@ class Darknet(nn.Module):
                     x = torch.cat([layer_outputs[l] for l in layers], 1)
                    
             elif block['type'] == 'shortcut':
-                # Add features from specified previous layer (residual connection)
+                # Add features from specified previous layer 
                 from_layer = int(block['from'])
                 x = layer_outputs[-1] + layer_outputs[from_layer]
                
             elif block['type'] == 'yolo':
                 # YOLO detection layer
-                x = module[0](x)  # module is Sequential, so access first element
-                outputs.append(x)
+                x = module[0](x)  # module is nn,seq ibject that holds layers for current block, x is used to call modules forward method - x is feature map tensor passed as input
+                outputs.append(x) # Fromatted bounding box predicitions at specific scael 
                
             layer_outputs.append(x)  # Save output for potential route/shortcut layers
            
-        # Concatenate all YOLO outputs along the detection dimension
+        # Concatenate all YOLO outputs along the detection dimension - net depths 82, 94 and 106 are output, outpus contain these three prediction tensors. tich.cat combines
         return torch.cat(outputs, 1)
    
     def load_darknet_weights(self, weights_path):
