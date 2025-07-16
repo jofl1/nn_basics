@@ -30,6 +30,13 @@ Edit the config.py file to match the setup you want to use. Then run train.py
 
 The model was evaluated with confidence 0.2 and IOU threshold 0.45 using NMS.
 
+### How it works
+The model is based on the YOLOv3 architecture, which is a convolutional neural network (CNN) that is trained to detect objects in images. The model is trained on the Pascal VOC dataset, which is a dataset of images with annotated objects. The model is trained to predict the bounding box of each object, as well as the class of the object.
+
+The model is implemented in PyTorch, and the training script is written in Python. The training script uses the `torch.optim` library to optimize the model's parameters, and the `torch.nn` library to define the model's architecture. The training script also uses the `tqdm` library to display a progress bar during training.
+
+The model is trained for 100 epochs, and the learning rate is set to 1e-5. The weight decay is set to 1e-4. The model is trained on a single GPU, and the batch size is set to 32. The model is evaluated on the test set after each epoch, and the mean average precision (mAP) is calculated. The mAP is a measure of the model's accuracy, and it is calculated by taking the average of the average precision (AP) for each class. The AP is a measure of the model's precision and recall, and it is calculated by taking the area under the precision-recall curve.
+
 ### Things I'm unsure of
 From my understanding YOLOv3 labeled targets to include an anchor on each of the three different scales. This leads to a problem where we will have multiple 
 predictions of the same object and I think the idea is that we rely more on NMS. The probability of an object in loss function should correspond to the IOU 

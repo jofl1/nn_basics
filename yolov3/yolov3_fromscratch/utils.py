@@ -13,11 +13,14 @@ from tqdm import tqdm
 
 def iou_width_height(boxes1, boxes2):
     """
+    Calculates the intersection over union (IoU) of two bounding boxes, given their width and height.
+
     Parameters:
-        boxes1 (tensor): width and height of the first bounding boxes
-        boxes2 (tensor): width and height of the second bounding boxes
+        boxes1 (tensor): A tensor containing the width and height of the first bounding boxes.
+        boxes2 (tensor): A tensor containing the width and height of the second bounding boxes.
+
     Returns:
-        tensor: Intersection over union of the corresponding boxes
+        tensor: A tensor containing the IoU of the corresponding bounding boxes.
     """
     intersection = torch.min(boxes1[..., 0], boxes2[..., 0]) * torch.min(
         boxes1[..., 1], boxes2[..., 1]
@@ -30,19 +33,15 @@ def iou_width_height(boxes1, boxes2):
 
 def intersection_over_union(boxes_preds, boxes_labels, box_format="midpoint"):
     """
-    Video explanation of this function:
-    https://youtu.be/XXYG5ZWtjj0
-
-    This function calculates intersection over union (iou) given pred boxes
-    and target boxes.
+    Calculates the intersection over union (IoU) of two bounding boxes.
 
     Parameters:
-        boxes_preds (tensor): Predictions of Bounding Boxes (BATCH_SIZE, 4)
-        boxes_labels (tensor): Correct labels of Bounding Boxes (BATCH_SIZE, 4)
-        box_format (str): midpoint/corners, if boxes (x,y,w,h) or (x1,y1,x2,y2)
+        boxes_preds (tensor): A tensor containing the predicted bounding boxes (BATCH_SIZE, 4).
+        boxes_labels (tensor): A tensor containing the ground truth bounding boxes (BATCH_SIZE, 4).
+        box_format (str): The format of the bounding boxes, either "midpoint" or "corners".
 
     Returns:
-        tensor: Intersection over union for all examples
+        tensor: A tensor containing the IoU of the corresponding bounding boxes.
     """
 
     if box_format == "midpoint":

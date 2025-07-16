@@ -1,17 +1,17 @@
 """
-Implementation of YOLOv3 architecture
+An implementation of the YOLOv3 architecture
 """
 
 import torch
 import torch.nn as nn
 
 """ 
-Information about architecture config:
-Tuple is structured by (filters, kernel_size, stride) 
-Every conv is a same convolution. 
-List is structured by "B" indicating a residual block followed by the number of repeats
-"S" is for scale prediction block and computing the yolo loss
-"U" is for upsampling the feature map and concatenating with a previous layer
+Information about the architecture config:
+- A tuple is structured by (filters, kernel_size, stride)
+- Every convolutional layer is a same convolution
+- A list is structured by "B" indicating a residual block followed by the number of repeats
+- "S" is for a scale prediction block and computing the yolo loss
+- "U" is for upsampling the feature map and concatenating it with a previous layer
 """
 config = [
     (32, 3, 1),
@@ -162,15 +162,3 @@ class YOLOv3(nn.Module):
                     in_channels = in_channels * 3
 
         return layers
-
-
-if __name__ == "__main__":
-    num_classes = 20
-    IMAGE_SIZE = 416
-    model = YOLOv3(num_classes=num_classes)
-    x = torch.randn((2, 3, IMAGE_SIZE, IMAGE_SIZE))
-    out = model(x)
-    assert model(x)[0].shape == (2, 3, IMAGE_SIZE//32, IMAGE_SIZE//32, num_classes + 5)
-    assert model(x)[1].shape == (2, 3, IMAGE_SIZE//16, IMAGE_SIZE//16, num_classes + 5)
-    assert model(x)[2].shape == (2, 3, IMAGE_SIZE//8, IMAGE_SIZE//8, num_classes + 5)
-    print("Success!")

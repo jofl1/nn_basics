@@ -1,7 +1,5 @@
 """
-Implementation of Yolo Loss Function similar to the one in Yolov3 paper,
-the difference from what I can tell is I use CrossEntropy for the classes
-instead of BinaryCrossEntropy.
+An implementation of the Yolo loss function, similar to the one in the YOLOv3 paper. The main difference is that I use CrossEntropyLoss for the classes, whereas the paper uses BinaryCrossEntropy.
 """
 import random
 import torch
@@ -25,7 +23,7 @@ class YoloLoss(nn.Module):
         self.lambda_box = 10
 
     def forward(self, predictions, target, anchors):
-        # Check where obj and noobj (we ignore if target == -1)
+        # Check where obj and noobj are (we ignore if target == -1)
         obj = target[..., 0] == 1  # in paper this is Iobj_i
         noobj = target[..., 0] == 0  # in paper this is Inoobj_i
 
@@ -63,13 +61,6 @@ class YoloLoss(nn.Module):
         class_loss = self.entropy(
             (predictions[..., 5:][obj]), (target[..., 5][obj].long()),
         )
-
-        #print("__________________________________")
-        #print(self.lambda_box * box_loss)
-        #print(self.lambda_obj * object_loss)
-        #print(self.lambda_noobj * no_object_loss)
-        #print(self.lambda_class * class_loss)
-        #print("\n")
 
         return (
             self.lambda_box * box_loss

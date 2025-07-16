@@ -1,5 +1,5 @@
 """
-Main file for training Yolo model on Pascal VOC and COCO dataset
+The main file for training the YOLO model on the Pascal VOC and COCO datasets
 """
 
 import config
@@ -22,10 +22,12 @@ from loss import YoloLoss
 import warnings
 warnings.filterwarnings("ignore")
 
+# A benchmark that is set to true allows PyTorch to find the best algorithm for the hardware
 torch.backends.cudnn.benchmark = True
 
 
-def train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors):
+def def train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors):
+    # Creates a new progress bar
     loop = tqdm(train_loader, leave=True)
     losses = []
     for batch_idx, (x, y) in enumerate(loop):
@@ -50,7 +52,7 @@ def train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors):
         scaler.step(optimizer)
         scaler.update()
 
-        # update progress bar
+        # Update the progress bar
         mean_loss = sum(losses) / len(losses)
         loop.set_postfix(loss=mean_loss)
 
@@ -79,16 +81,7 @@ def main():
     ).to(config.DEVICE)
 
     for epoch in range(config.NUM_EPOCHS):
-        #plot_couple_examples(model, test_loader, 0.6, 0.5, scaled_anchors)
         train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors)
-
-        #if config.SAVE_MODEL:
-        #    save_checkpoint(model, optimizer, filename=f"checkpoint.pth.tar")
-
-        #print(f"Currently epoch {epoch}")
-        #print("On Train Eval loader:")
-        #print("On Train loader:")
-        #check_class_accuracy(model, train_loader, threshold=config.CONF_THRESHOLD)
 
         if epoch > 0 and epoch % 3 == 0:
             check_class_accuracy(model, test_loader, threshold=config.CONF_THRESHOLD)
@@ -108,7 +101,3 @@ def main():
             )
             print(f"MAP: {mapval.item()}")
             model.train()
-
-
-if __name__ == "__main__":
-    main()
