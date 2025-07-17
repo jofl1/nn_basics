@@ -10,6 +10,8 @@ __pycache__/
 
 yolov3.weights
 
+Bike_images/
+
 # Distribution / packaging
 .Python
 build/
