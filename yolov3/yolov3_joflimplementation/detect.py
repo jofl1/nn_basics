@@ -65,6 +65,8 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
    
     with torch.no_grad():  # Disable gradient computation for inference
         detections = model(img_tensor)  # Forward pass through network
+        # Concatenate outputs from all YOLO layers
+        detections = torch.cat(detections, 1)
         detections = non_max_suppression(detections, conf_thres, nms_thres)  # Apply NMS
    
     if device.type == 'cuda':
