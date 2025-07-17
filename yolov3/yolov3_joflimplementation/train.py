@@ -119,7 +119,7 @@ def main(opt):
     model = Darknet(cfg_path="yolov3.cfg", num_classes=opt.num_classes).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=0)
     loss_fn = YOLOv3Loss()
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.amp.GradScaler('cuda',)
     
     # Learning rate scheduler
     scheduler = optim.lr_scheduler.MultiStepLR(

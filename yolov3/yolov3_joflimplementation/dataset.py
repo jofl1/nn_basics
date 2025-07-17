@@ -1,4 +1,3 @@
-
 import torch
 import os
 from PIL import Image
@@ -39,7 +38,7 @@ class YOLODataset(Dataset):
 
     def __getitem__(self, index):
         img_path = os.path.join(self.img_dir, self.images[index])
-        label_path = os.path.join(self.label_dir, self.images[index].replace("jpg", "txt"))
+        label_path = os.path.join(self.label_dir, self.images[index].replace(".jpg", ".txt"))
 
         image = np.array(Image.open(img_path).convert("RGB"))
         bboxes = np.loadtxt(fname=label_path, delimiter=" ", ndmin=2)
