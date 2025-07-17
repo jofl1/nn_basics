@@ -564,11 +564,10 @@ def draw_detections(img, detections, img_size=416):
     # Image is modified in-place
     return img
 
-def visualize_raw_predictions(prediction, img, conf_threshold=0.1, max_boxes=50):
+def visualise_raw_predictions(prediction, img, conf_threshold=0.1, max_boxes=50):
     """
-    Visualize ALL predictions before NMS to see what the network actually detects.
+    Visualise all predictions before NMS to see what the network actually detects.
     
-    FIXED: Added proper coordinate transformation from padded space to original image space
     """
     # Convert to corner format
     pred_copy = prediction.clone()
@@ -634,7 +633,7 @@ def print_detection_details(detections, top_k=5):
         return
         
     print("\n" + "="*80)
-    print("DETAILED DETECTION ANALYSIS")
+    print("Detection analysis")
     print("="*80)
     
     for idx, det in enumerate(detections):
@@ -657,7 +656,7 @@ def print_detection_statistics(predictions):
         return
     
     print("\n" + "="*60)
-    print("DETECTION STATISTICS")
+    print("Detection stats")
     print("="*60)
     
     # Objectness statistics
@@ -691,16 +690,11 @@ def analyze_predictions_interactive(model, img_tensor, img, conf_thres=0.5):
     """
     Interactive analysis mode - allows detailed inspection of network predictions.
     
-    FIXED: Added proper device handling and coordinate transformations
     """
     device = img_tensor.device
     
     with torch.no_grad():
         raw_predictions = model(img_tensor)
-    
-    print("\n" + "="*80)
-    print("INTERACTIVE YOLO ANALYSIS MODE")
-    print("="*80)
     
     # Get predictions for first image in batch
     predictions = raw_predictions[0]
@@ -734,7 +728,7 @@ def analyze_predictions_interactive(model, img_tensor, img, conf_thres=0.5):
         print("\nOptions:")
         print("  1. Show class probability vector for a detection")
         print("  2. Show top predictions for each class")
-        print("  3. Visualize confidence heatmap")
+        print("  3. visualise confidence heatmap")
         print("  4. Show raw predictions before NMS")
         print("  5. Show detection statistics")
         print("  q. Quit interactive mode")
@@ -770,12 +764,12 @@ def analyze_predictions_interactive(model, img_tensor, img, conf_thres=0.5):
             show_top_predictions_per_class(filtered_preds)
             
         elif choice == '3':
-            # Visualize confidence heatmap
-            visualize_confidence_heatmap(raw_predictions, img)
+            # visualise confidence heatmap
+            visualise_confidence_heatmap(raw_predictions, img)
             
         elif choice == '4':
             # Show raw predictions
-            visualize_raw_predictions(raw_predictions, img)
+            visualise_raw_predictions(raw_predictions, img)
             
         elif choice == '5':
             # Show detection statistics
@@ -785,7 +779,6 @@ def show_class_probabilities(detection, top_k=10):
     """
     Display the full 80-element class probability vector for a detection.
     
-    VERIFIED: Correctly shows all 80 classes with proper highlighting
     """
     # Ensure we're working with CPU tensors
     if detection.is_cuda:
@@ -862,7 +855,7 @@ def show_top_predictions_per_class(predictions, top_k=3):
                       f"(obj: {p['objectness']:.3f}, "
                       f"cls: {p['class_prob']:.3f})")
 
-def visualize_confidence_heatmap(predictions, img):
+def visualise_confidence_heatmap(predictions, img):
     """
     Create a heatmap showing where the network has high confidence.
     
@@ -927,34 +920,6 @@ def visualize_confidence_heatmap(predictions, img):
     plt.tight_layout()
     plt.show()
 
-
-def print_model_stats(model):
-    """
-    Print statistics about the model architecture.
-    """
-    print("\n" + "="*80)
-    print("YOLO MODEL STATISTICS")
-    print("="*80)
-    
-    total_params = 0
-    yolo_layers = []
-    
-    for i, (block, module) in enumerate(zip(model.blocks[1:], model.module_list)):
-        if block['type'] == 'yolo':
-            yolo_layers.append(i)
-            anchors = module[0].anchors
-            print(f"\nYOLO Layer {len(yolo_layers)} (Layer {i}):")
-            print(f"  Anchors: {anchors}")
-            print(f"  Stride: {module[0].stride if hasattr(module[0], 'stride') else 'N/A'}")
-        
-        # Count parameters
-        for m in module.modules():
-            if isinstance(m, (nn.Conv2d, nn.BatchNorm2d, nn.Linear)):
-                total_params += sum(p.numel() for p in m.parameters())
-    
-    print(f"\nTotal Parameters: {total_params:,}")
-    print(f"Total YOLO Detection Layers: {len(yolo_layers)}")
-
 # Modified main detection function with interactive mode
 def detect_image_interactive(cfg_path, weights_path, img_path, output_path, 
                            conf_thres=0.5, nms_thres=0.4, interactive=False):
@@ -969,9 +934,6 @@ def detect_image_interactive(cfg_path, weights_path, img_path, output_path,
     model.load_darknet_weights(weights_path)
     model.eval()
     model = model.to(device)
-    
-    # Print model statistics
-    print_model_stats(model)
     
     # Preprocess image
     img_tensor, original_img = preprocess_image(img_path)
@@ -997,9 +959,9 @@ def detect_image_interactive(cfg_path, weights_path, img_path, output_path,
     # Print detailed detection info
     print_detection_details(detections)
     
-    # Visualize raw predictions if in verbose mode
+    # visualise raw predictions if in verbose mode
     if interactive and len(detections) > 0:
-        visualize_raw_predictions(raw_detections, original_img)
+        visualise_raw_predictions(raw_detections, original_img)
     
     # Draw and save results
     if len(detections) > 0:
