@@ -1,5 +1,3 @@
-
-
 import torch
 import os
 from PIL import Image
@@ -10,7 +8,7 @@ class YOLODataset(Dataset):
     """
     Creates a PyTorch Dataset for YOLOv3.
     """
-    def __init__(self, img_dir, label_dir, anchors, image_size=416, S=None, C=20, transform=None):
+    def __init__(self, img_dir, label_dir, anchors, image_size=416, S=None, num_classes=20, transform=None):
         """
         Args:
             img_dir (str): Path to the directory with images.
@@ -18,7 +16,7 @@ class YOLODataset(Dataset):
             anchors (list): A list of anchor boxes.
             image_size (int): The size to which images are resized.
             S (list): A list of grid sizes for each scale (e.g., [13, 26, 52]).
-            C (int): The number of classes.
+            num_classes (int): The number of classes.
             transform: Albumentations transform
         """
         if S is None:
@@ -31,7 +29,7 @@ class YOLODataset(Dataset):
         self.anchors = torch.tensor(anchors[0] + anchors[1] + anchors[2])
         self.num_anchors = self.anchors.shape[0]
         self.num_anchors_per_scale = self.num_anchors // 3
-        self.C = C
+        self.num_classes = num_classes
         self.ignore_iou_thresh = 0.5
         self.images = os.listdir(img_dir)
 

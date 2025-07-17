@@ -1,8 +1,7 @@
-
-
 import torch
 import time
 import cv2
+import argparse
 
 from model import Darknet
 from utils import preprocess_image, non_max_suppression, draw_detections
@@ -23,7 +22,7 @@ COCO_CLASSES = [
     'toothbrush'
 ]
 
-def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, nms_thres=0.4):
+def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, nms_thres=0.4, num_classes=80, class_names=None):
     """
     Run YOLO object detection on a single image.
     
@@ -45,7 +44,7 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
         print(f"GPU: {torch.cuda.get_device_name(0)}")
    
     # Load and initialise model
-    model = Darknet(cfg_path)
+    model = Darknet(cfg_path, num_classes=num_classes)
     model.load_darknet_weights(weights_path)
     model.eval()  # Set to evaluation mode (disables dropout, etc.)
     model = model.to(device)  # Move model to GPU if available
@@ -78,7 +77,9 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
     if len(detections) > 0:
         # Draw_detections modifies the image in-place
         # Move detections to CPU for drawing (OpenCV uses CPU)
-        result_img = draw_detections(original_img, detections.cpu(), class_names=COCO_CLASSES)
+        if class_names is None:
+            class_names = COCO_CLASSES
+        result_img = draw_detections(original_img, detections.cpu(), class_names=class_names)
     else:
         result_img = original_img
         print("No objects detected")
@@ -92,21 +93,33 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
     return detections
 
 if __name__ == "__main__":
-   
-    # File paths
-    cfg_path = "yolov3.cfg"
-    weights_path = "yolov3.weights" # or your custom trained weights
-    img_path = "test_image.jpg"  
-    output_path = "detected_image.jpg"  
-   
-    # Run detection
-    detections = detect_image(cfg_path, weights_path, img_path, output_path)
-   
-    # Print detection summary
-    if len(detections) > 0:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--cfg', type=str, default='yolov3.cfg', help='path to model config file')
+    parser.add_argument('--weights', type=str, default='yolov3.weights', help='path to weights file')
+    parser.add_argument('--image', type=str, default='test_image.jpg', help='path to input image')
+    parser.add_argument('--output', type=str, default='detected_image.jpg', help='path to output image')
+    parser.add_argument('--conf-thres', type=float, default=0.5, help='object confidence threshold')
+    parser.add_argument('--nms-thres', type=float, default=0.4, help='iou threshold for non-maximum suppression')
+    parser.add_argument('--num-classes', type=int, default=80, help='number of classes (80 for COCO, custom for your dataset)')
+    opt = parser.parse_args()
+
+    detections = detect_image(
+        cfg_path=opt.cfg,
+        weights_path=opt.weights,
+        img_path=opt.image,
+        output_path=opt.output,
+        conf_thres=opt.conf_thres,
+        nms_thres=opt.nms_thres,
+        num_classes=opt.num_classes
+    )
+
+    if detections is not None and len(detections) > 0:
         print(f"\nDetected {len(detections)} objects:")
         for det in detections:
-            cls = int(det[6])  # Class ID
-            conf = det[4]      # Objectness confidence
-            print(f"- {COCO_CLASSES[cls]}: {conf:.2f}")
+            cls = int(det[6])
+            conf = det[4]
+            if opt.num_classes == 80:
+                print(f"- {COCO_CLASSES[cls]}: {conf:.2f}")
+            else:
+                print(f"- Class {cls}: {conf:.2f}")
 

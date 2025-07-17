@@ -1,5 +1,3 @@
-
-
 import torch
 import torch.nn as nn
 import numpy as np
@@ -100,10 +98,11 @@ class Darknet(nn.Module):
     Darknet neural network architecture for YOLO object detection.
     Parses configuration file and builds the network dynamically.
     """
-    def __init__(self, cfg_path, img_size=416):
+    def __init__(self, cfg_path, num_classes=80, img_size=416):
         super(Darknet, self).__init__()
         self.blocks = self.parse_cfg(cfg_path)  # Parse network architecture from config
         self.img_size = img_size
+        self.num_classes = num_classes
         self.module_list = self.create_modules(self.blocks)  # Build PyTorch modules
        
     def parse_cfg(self, cfg_path):
@@ -219,7 +218,7 @@ class Darknet(nn.Module):
                           for i in range(0, len(anchors), 2)]
                 anchors = [anchors[i] for i in mask]
                
-                num_classes = int(block['classes'])
+                num_classes = self.num_classes
                 img_size = int(net_info['height'])
                
                 yolo = YOLOLayer(anchors, num_classes, img_size)
@@ -240,43 +239,43 @@ class Darknet(nn.Module):
             x: Input image tensor [batch_size, 3, height, width]
             
         Returns:
-            Concatenated detections from all YOLO layers
+            List of detection tensors from all YOLO layers (typically 3 for YOLOv3)
         """
         outputs = []  # Collect outputs from YOLO layers
         layer_outputs = []  # Store outputs from all layers
-       
+    
         # Process each layer sequentially
         for i, (block, module) in enumerate(zip(self.blocks[1:], self.module_list)):
             if block['type'] in ['convolutional', 'upsample']:
                 # Standard forward pass
                 x = module(x)
-               
+            
             elif block['type'] == 'route':
                 # Concatenate features from specified layers
                 layers = block['layers'].split(',')
                 layers = [int(x) for x in layers]
-               
+            
                 if len(layers) == 1:
                     # Single route: use features from specified layer
                     x = layer_outputs[layers[0]]
                 else:
                     # Multiple routes: concatenate along channel dimension
                     x = torch.cat([layer_outputs[l] for l in layers], 1)
-                   
+                
             elif block['type'] == 'shortcut':
                 # Add features from specified previous layer 
                 from_layer = int(block['from'])
                 x = layer_outputs[-1] + layer_outputs[from_layer]
-               
+            
             elif block['type'] == 'yolo':
                 # YOLO detection layer
-                x = module[0](x)  # module is nn,seq ibject that holds layers for current block, x is used to call modules forward method - x is feature map tensor passed as input
-                outputs.append(x) # Fromatted bounding box predicitions at specific scael 
-               
+                x = module[0](x)  # module is nn.Sequential object that holds layers for current block
+                outputs.append(x)  # Formatted bounding box predictions at specific scale
+            
             layer_outputs.append(x)  # Save output for potential route/shortcut layers
-           
-        # Concatenate all YOLO outputs along the detection dimension - net depths 82, 94 and 106 are output, outpus contain these three prediction tensors. tich.cat combines
-        return torch.cat(outputs, 1)
+        
+        # Return list of YOLO outputs instead of concatenating them
+        return outputs  # This will return a list with 3 tensors for YOLOv3
    
     def load_darknet_weights(self, weights_path):
         """
@@ -366,3 +365,36 @@ class Darknet(nn.Module):
                     raise e
        
         print(f"Loaded weights: {ptr} / {len(weights)} values used")
+    
+    def save_darknet_weights(self, weights_path):
+        """
+        Save model weights in Darknet format.
+        
+        Args:
+            weights_path: Path to save .weights file
+        """
+        with open(weights_path, 'wb') as f:
+            # Write header (5 int32 values)
+            # Major version, minor version, revision, seen (images), 0
+            header = np.array([0, 2, 0, 0, 0], dtype=np.int32)
+            header.tofile(f)
+            
+            # Save weights layer by layer
+            for i, (block, module) in enumerate(zip(self.blocks[1:], self.module_list)):
+                if block['type'] == 'convolutional':
+                    conv_layer = module[0]
+                    if 'batch_normalize' in block:
+                        # Save batch norm parameters first
+                        bn_layer = module[1]
+                        bn_layer.bias.data.cpu().numpy().tofile(f)
+                        bn_layer.weight.data.cpu().numpy().tofile(f)
+                        bn_layer.running_mean.cpu().numpy().tofile(f)
+                        bn_layer.running_var.cpu().numpy().tofile(f)
+                    else:
+                        # Save conv bias
+                        conv_layer.bias.data.cpu().numpy().tofile(f)
+                    
+                    # Save conv weights
+                    conv_layer.weight.data.cpu().numpy().tofile(f)
+        
+        print(f"Saved weights to {weights_path}")

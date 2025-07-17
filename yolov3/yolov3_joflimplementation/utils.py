@@ -1,4 +1,3 @@
-
 import torch
 import torchvision.ops as ops
 import cv2
@@ -181,13 +180,15 @@ def draw_detections(img, detections, img_size=416, class_names=None):
     # Image is modified in-place
     return img
 
-def save_checkpoint(model, optimizer, filename="my_checkpoint.pth.tar"):
+def save_checkpoint(model, optimizer, filename="my_checkpoint.pth.tar", epoch=None):
     """Saves the model state."""
     print("=> Saving checkpoint")
     checkpoint = {
         "state_dict": model.state_dict(),
         "optimizer": optimizer.state_dict(),
     }
+    if epoch is not None:
+        checkpoint["epoch"] = epoch
     torch.save(checkpoint, filename)
 
 def load_checkpoint(checkpoint_file, model, optimizer, lr):
