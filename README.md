@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Basics of neural networks
 
 This repository contains a collection of projects exploring the fundamentals of neural networks.
@@ -79,4 +78,3 @@ pip install -r requirements.txt
 ```
 
 Most implementations include a main Python file that can be run directly to see the model in action.
->>>>>>> refs/remotes/origin/main
