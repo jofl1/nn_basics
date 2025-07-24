@@ -16,29 +16,29 @@ from utils import (
 )
 
 # --- Training Hyperparameters ---
-LEARNING_RATE = 1e-4
-BATCH_SIZE = 16
-NUM_EPOCHS = 100
-CONF_THRESHOLD = 0.6
-NMS_THRESHOLD = 0.4
-IGNORE_THRESH = 0.5
-NUM_WORKERS = 4  # Added for faster data loading
+learning_rate = 1e-4
+batch_size = 16
+num_epochs = 100
+conf_threshold = 0.9
+nms_threshold = 0.5
+ignore_thresh = 0.5
+num_workers = 4  # Added for faster data loading
 
 # --- Device Configuration ---
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # --- Model & Data Configuration ---
 # The anchors are ordered from largest to smallest feature map.
-ANCHORS = [
+anchors = [
     [(0.28, 0.22), (0.38, 0.48), (0.9, 0.78)],
     [(0.07, 0.15), (0.15, 0.11), (0.14, 0.29)],
     [(0.02, 0.03), (0.04, 0.07), (0.08, 0.06)],
 ]
-IMAGE_SIZE = 416
-S = [IMAGE_SIZE // 32, IMAGE_SIZE // 16, IMAGE_SIZE // 8]
+image_size = 416
+s = [image_size // 32, image_size // 16, image_size // 8]
 
 # --- Checkpoint & Weight Paths ---
-CHECKPOINT_FILE = "yolov3.pth.tar"
+checkpoint_file = "yolov3.pth"
 
 
 def train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors):
@@ -50,14 +50,14 @@ def train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors):
     losses = []
 
     for batch_idx, (x, y) in enumerate(loop):
-        x = x.to(DEVICE)
+        x = x.to(device)
         y0, y1, y2 = (
-            y[0].to(DEVICE),
-            y[1].to(DEVICE),
-            y[2].to(DEVICE),
+            y[0].to(device),
+            y[1].to(device),
+            y[2].to(device),
         )
 
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast('cuda'):
             out = model(x)
             loss = (
                 loss_fn(out[0], y0, scaled_anchors[0])
@@ -88,7 +88,7 @@ def validate_fn(val_loader, model, loss_fn, scaled_anchors):
     
     with torch.no_grad():
         for batch_idx, (x, y) in enumerate(loop):
-            x = x.to(DEVICE)
+            x = x.to(device)
             y0, y1, y2 = (
                 y[0].to(DEVICE),
                 y[1].to(DEVICE),
@@ -114,10 +114,10 @@ def main(opt):
     """
     Main function to run the training process.
     """
-    print(f"Training on {DEVICE}")
+    print(f"Training on {device}")
     
-    model = Darknet(cfg_path="yolov3.cfg", num_classes=opt.num_classes).to(DEVICE)
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=0)
+    model = Darknet(cfg_path="yolov3.cfg", num_classes=opt.num_classes).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0)
     loss_fn = YOLOv3Loss()
     scaler = torch.amp.GradScaler('cuda',)
     
@@ -128,52 +128,56 @@ def main(opt):
         gamma=0.1
     )
     
-    # Data augmentation
     train_transform = A.Compose(
         [
-            A.LongestMaxSize(max_size=IMAGE_SIZE),
+            A.LongestMaxSize(max_size=image_size),
             A.PadIfNeeded(
-                min_height=IMAGE_SIZE, min_width=IMAGE_SIZE, border_mode=cv2.BORDER_CONSTANT
+                min_height=image_size, min_width=image_size, border_mode=cv2.BORDER_CONSTANT
             ),
             A.Normalize(mean=[0, 0, 0], std=[1, 1, 1], max_pixel_value=255,),
             ToTensorV2(),
         ],
-        bbox_params=A.BboxParams(format="yolo", min_visibility=0.4, label_fields=[]),
+        bbox_params=A.BboxParams(
+            format="yolo", 
+            min_visibility=0.4, 
+            label_fields=[],
+            clip=True  # Add this line
+        ),
     )
     
     # Training dataset
     train_dataset = YOLODataset(
         img_dir=opt.img_dir,
         label_dir=opt.label_dir,
-        anchors=ANCHORS,
+        anchors=anchors,
         transform=train_transform,
         num_classes=opt.num_classes
     )
     
     train_loader = DataLoader(
         dataset=train_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
         shuffle=True,
         pin_memory=True,
-        num_workers=NUM_WORKERS,  # Added for faster data loading
-        persistent_workers=True if NUM_WORKERS > 0 else False,  # Keep workers alive
+        num_workers=num_workers,  # Added for faster data loading
+        persistent_workers=True if num_workers > 0 else False,  # Keep workers alive
     )
     
-    # Optional: Validation dataset (using same transform for simplicity)
+    # Optional Validation dataset (using same transform for simplicity)
     val_dataset = None
     val_loader = None
     if opt.val_img_dir and opt.val_label_dir:
         val_dataset = YOLODataset(
             img_dir=opt.val_img_dir,
             label_dir=opt.val_label_dir,
-            anchors=ANCHORS,
+            anchors=anchors,
             transform=train_transform,  # You might want a separate val_transform without augmentation
             num_classes=opt.num_classes
         )
         
         val_loader = DataLoader(
             dataset=val_dataset,
-            batch_size=BATCH_SIZE,
+            batch_size=batch_size,
             shuffle=False,
             pin_memory=True,
             num_workers=NUM_WORKERS,
@@ -182,97 +186,69 @@ def main(opt):
     
     # Scale anchors
     scaled_anchors = (
-        torch.tensor(ANCHORS)
-        * torch.tensor(S).unsqueeze(1).unsqueeze(1)
-    ).to(DEVICE)
+        torch.tensor(anchors)
+        * torch.tensor(s).unsqueeze(1).unsqueeze(1)
+    ).to(device)
     
     # Load checkpoint if specified
     start_epoch = 0
     if opt.load_checkpoint:
-        try:
-            checkpoint = torch.load(opt.load_checkpoint)
-            model.load_state_dict(checkpoint["state_dict"])
-            optimizer.load_state_dict(checkpoint["optimizer"])
-            start_epoch = checkpoint.get("epoch", 0) + 1
-            print(f"Loaded checkpoint from epoch {start_epoch - 1}")
-        except Exception as e:
-            print(f"Error loading checkpoint: {e}")
+        checkpoint = torch.load(opt.load_checkpoint)
+        model.load_state_dict(checkpoint["state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        start_epoch = checkpoint.get("epoch", 0) + 1
+        print(f"Loaded checkpoint from epoch {start_epoch - 1}")
     
-    # Training loop with error handling
+    # Training loop
     best_val_loss = float('inf')
     
-    try:
-        for epoch in range(start_epoch, NUM_EPOCHS):
-            print(f"\nEpoch [{epoch}/{NUM_EPOCHS}]")
+    for epoch in range(start_epoch, num_epochs):
+        print(f"\nEpoch [{epoch}/{num_epochs}]")
+        
+        # Training with timing
+        epoch_start_time = time.time()
+        train_loss = train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors)
+        epoch_time = time.time() - epoch_start_time
+        print(f"Training Loss: {train_loss:.4f}")
+        print(f"Epoch Time: {epoch_time:.2f} seconds")
+        
+        # Validation
+        if val_loader is not None:
+            val_loss = validate_fn(val_loader, model, loss_fn, scaled_anchors)
+            print(f"Validation Loss: {val_loss:.4f}")
             
-            # Training with timing
-            epoch_start_time = time.time()
-            train_loss = train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors)
-            epoch_time = time.time() - epoch_start_time
-            print(f"Training Loss: {train_loss:.4f}")
-            print(f"Epoch Time: {epoch_time:.2f} seconds")
-            
-            # Validation
-            if val_loader is not None:
-                val_loss = validate_fn(val_loader, model, loss_fn, scaled_anchors)
-                print(f"Validation Loss: {val_loss:.4f}")
-                
-                # Save best model
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    save_checkpoint(
-                        model, 
-                        optimizer, 
-                        filename="best_model.pth.tar",
-                        epoch=epoch
-                    )
-                    print("Saved best model!")
-            
-            # Step the learning rate scheduler
-            scheduler.step()
-            current_lr = scheduler.get_last_lr()[0]
-            print(f"Learning Rate: {current_lr:.6f}")
-            
-            # Regular checkpoint saving
-            if epoch % 10 == 0:
-                checkpoint = {
-                    "state_dict": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "epoch": epoch,
-                }
-                checkpoint = {
-                    "state_dict": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "epoch": epoch,
-                }
+            # Save best model
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
                 save_checkpoint(
                     model, 
                     optimizer, 
-                    filename=f"checkpoint_epoch_{epoch}.pth.tar",
+                    filename="best_model.pth",
                     epoch=epoch
                 )
-                # Also save as .weights format
-                model.save_darknet_weights(f"yolov3_epoch_{epoch}.weights")
-                print(f"Saved checkpoint and weights at epoch {epoch}")
-    
-    except KeyboardInterrupt:
-        print("\nTraining interrupted by user")
-        checkpoint = {
-            "state_dict": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "epoch": epoch,
-        }
-        save_checkpoint(
-            model, 
-            optimizer, 
-            filename="interrupt_checkpoint.pth.tar",
-            epoch=epoch
-        )
-        print("Saved interrupt checkpoint")
-    
-    except Exception as e:
-        print(f"\nError during training: {e}")
-        raise
+                print("Saved best model!")
+        
+        # Step the learning rate scheduler
+        scheduler.step()
+        current_lr = scheduler.get_last_lr()[0]
+        print(f"Learning Rate: {current_lr:.6f}")
+        
+        # Regular checkpoint saving
+        if epoch % 10 == 0:
+            checkpoint = {
+                "state_dict": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "epoch": epoch,
+            }
+            save_checkpoint(
+                model, 
+                optimizer, 
+                filename=f"checkpoint_epoch_{epoch}.pth",
+                epoch=epoch
+            )
+            # Also save as .weights format
+            model.save_darknet_weights(f"yolov3_epoch_{epoch}.weights")
+            print(f"Saved checkpoint and weights at epoch {epoch}")
     
     print("\nTraining completed!")
     

@@ -3,90 +3,60 @@ import torch.nn as nn
 import numpy as np
 
 class YOLOLayer(nn.Module):
-    """
-    YOLO detection layer that processes feature maps and outputs bounding box predictions.
-    This layer is responsible for converting the raw CNN output into interpretable object detections.
-    """
     def __init__(self, anchors, num_classes, img_size):
         super(YOLOLayer, self).__init__()
-        self.anchors = anchors  # Pre-defined anchor box dimensions (width, height) in pixels
-        self.num_anchors = len(anchors)  # Number of anchor boxes per grid cell (typically 3)
-        self.num_classes = num_classes  # Number of object classes (80 for COCO)
-        self.img_size = img_size  # Input image size (416x416)
-        self.grid_size = 0  # Will be set dynamically based on feature map size
-        self.stride = 0  # Pixel stride between grid cells
+        self.anchors = anchors
+        self.num_anchors = len(anchors)
+        self.num_classes = num_classes
+        self.img_size = img_size
+        self.grid_size = 0
+        self.stride = 0
+        # Add this flag to control output format
+        self.training = True
        
-    def forward(self, x):
-        """
-        Forward pass through YOLO layer.
-        
-        Args:
-            x: Feature map tensor of shape [batch_size, num_anchors*(5+num_classes), grid_size, grid_size]
-               where 5 represents: x, y, width, height, objectness confidence
-        
-        Returns:
-            Tensor of shape [batch_size, num_grid_cells*num_anchors, 5+num_classes] containing:
-            - Scaled bounding box coordinates (x1, y1, x2, y2) in image space
-            - Objectness confidence score
-            - Class probability scores
-        """
+    def forward(self, x, targets=None):
         batch_size = x.size(0)
-        grid_size = x.size(2)  # Feature map is square, so height = width = grid_size
+        grid_size = x.size(2)
        
-        # Reshape predictions from flat channel dimension to structured format
-        # From: [batch, channels, height, width]
-        # To: [batch, num_anchors, 5+num_classes, height, width]
+        # Reshape predictions
         prediction = x.view(batch_size, self.num_anchors,
                           self.num_classes + 5, grid_size, grid_size)
-        # Reorder dimensions for easier processing
-        # To: [batch, num_anchors, height, width, 5+num_classes]
         prediction = prediction.permute(0, 1, 3, 4, 2).contiguous()
        
-        # Extract and apply activation functions to predictions
-        # Sigmoid constrains x,y to [0,1] within each grid cell
-        x = torch.sigmoid(prediction[..., 0])  # Centre x coordinate (relative to grid cell)
-        y = torch.sigmoid(prediction[..., 1])  # Centre y coordinate (relative to grid cell)
-        # Width and height are in log space 
-        w = prediction[..., 2]  # Width 
-        h = prediction[..., 3]  # Height 
-        # Objectness: probability that this anchor contains an object
-        conf = torch.sigmoid(prediction[..., 4])  # Confidence/objectness score
-        # Class predictions: probability distribution over classes
-        pred_cls = torch.sigmoid(prediction[..., 5:])  # Class probabilities
+        # Get outputs
+        x = torch.sigmoid(prediction[..., 0])
+        y = torch.sigmoid(prediction[..., 1])
+        w = prediction[..., 2]
+        h = prediction[..., 3]
+        conf = torch.sigmoid(prediction[..., 4])
+        pred_cls = torch.sigmoid(prediction[..., 5:])
        
-        # Calculate stride: how many pixels in the original image correspond to one grid cell
-        # E.g., if image is 416x416 and grid is 13x13, stride = 32
+        # If we're training, return the raw predictions for loss calculation
+        if self.training:
+            return prediction
+       
+        # Otherwise, convert to bounding boxes for inference
         stride = self.img_size // grid_size
        
-        # Create grids of x,y coordinates for each cell
-        # These represent the top-left corner of each grid cell
-        # grid_x: [[0,1,2,...,12], [0,1,2,...,12], ...] for a 13x13 grid
+        # Create grids
         grid_x = torch.arange(grid_size, dtype=torch.float32, device=x.device).repeat(grid_size, 1).view([1, 1, grid_size, grid_size])
-        # grid_y: [[0,0,0,...,0], [1,1,1,...,1], ..., [12,12,12,...,12]] for a 13x13 grid
         grid_y = torch.arange(grid_size, dtype=torch.float32, device=x.device).repeat(grid_size, 1).t().view([1, 1, grid_size, grid_size])
        
-        # Scale anchor boxes from pixel coordinates to grid coordinates
-        # This converts anchors from image space to feature map space
+        # Scale anchors
         scaled_anchors = [(a[0]/stride, a[1]/stride) for a in self.anchors]
-        # Extract widths and heights separately, creating tensors on the correct device
         anchor_w = torch.tensor([a[0] for a in scaled_anchors], dtype=torch.float32, device=x.device)
         anchor_h = torch.tensor([a[1] for a in scaled_anchors], dtype=torch.float32, device=x.device)
-        # Reshape for broadcasting: [batch, num_anchors, 1, 1]
         anchor_w = anchor_w.repeat(batch_size, 1).view(batch_size, self.num_anchors, 1, 1)
         anchor_h = anchor_h.repeat(batch_size, 1).view(batch_size, self.num_anchors, 1, 1)
        
-        # Convert predictions to bounding boxes in grid space
+        # Convert predictions to bounding boxes
         pred_boxes = torch.zeros_like(prediction[..., :4])
-        # x,y predictions are relative to grid cell, add grid coordinates for absolute position
-        pred_boxes[..., 0] = x + grid_x  # Absolute x in grid coordinates
-        pred_boxes[..., 1] = y + grid_y  # Absolute y in grid coordinates
-        # Width/height use exponential to ensure positive values, multiplied by anchor dimensions
-        pred_boxes[..., 2] = torch.exp(w) * anchor_w  # Absolute width in grid coordinates
-        pred_boxes[..., 3] = torch.exp(h) * anchor_h  # Absolute height in grid coordinates
+        pred_boxes[..., 0] = x + grid_x
+        pred_boxes[..., 1] = y + grid_y
+        pred_boxes[..., 2] = torch.exp(w) * anchor_w
+        pred_boxes[..., 3] = torch.exp(h) * anchor_h
        
-        # Reshape and scale outputs to image coordinates
-        # Flatten spatial dimensions: [batch, num_anchors*grid*grid, 4]
-        # Multiply by stride to convert from grid coordinates to pixel coordinates
+        # Flatten and scale
         output = torch.cat((pred_boxes.view(batch_size, -1, 4) * stride,
                            conf.view(batch_size, -1, 1),
                            pred_cls.view(batch_size, -1, self.num_classes)), -1)
@@ -308,10 +278,7 @@ class Darknet(nn.Module):
                     # 1. bias, 2. weight (scale), 3. running mean, 4. running variance
                     num_bn_biases = bn_layer.bias.numel()
                    
-                    # Check if we have enough weights remaining
-                    if ptr + num_bn_biases > len(weights):
-                        raise RuntimeError(f"Not enough weights for BN bias at layer {i}")
-                   
+                    
                     # Load batch norm bias
                     bn_biases = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
                     ptr += num_bn_biases
@@ -337,10 +304,7 @@ class Darknet(nn.Module):
                     # No batch norm: load convolutional bias
                     num_biases = conv_layer.bias.numel()
                    
-                    # Check if we have enough weights remaining
-                    if ptr + num_biases > len(weights):
-                        raise RuntimeError(f"Not enough weights for conv bias at layer {i}")
-                   
+                    
                     conv_biases = torch.from_numpy(weights[ptr:ptr + num_biases])
                     ptr += num_biases
                     conv_layer.bias.data.copy_(conv_biases.view_as(conv_layer.bias.data))
@@ -348,21 +312,11 @@ class Darknet(nn.Module):
                 # Load convolutional weights (same for both cases)
                 num_weights = conv_layer.weight.numel()
                
-                # Check if we have enough weights remaining
-                if ptr + num_weights > len(weights):
-                    raise RuntimeError(f"Not enough weights for conv weights at layer {i}. Need {num_weights}, have {len(weights) - ptr}")
-               
-                try:
-                    # Load and reshape weights to match layer dimensions
-                    conv_weights = torch.from_numpy(weights[ptr:ptr + num_weights])
-                    ptr += num_weights
-                    conv_layer.weight.data.copy_(conv_weights.view_as(conv_layer.weight.data))
-                except RuntimeError as e:
-                    print(f"Error at layer {i}: {block}")
-                    print(f"Conv layer shape: {conv_layer.weight.shape}")
-                    print(f"Trying to load {num_weights} weights")
-                    print(f"Available weights: {len(weights) - ptr}")
-                    raise e
+                
+                # Load and reshape weights to match layer dimensions
+                conv_weights = torch.from_numpy(weights[ptr:ptr + num_weights])
+                ptr += num_weights
+                conv_layer.weight.data.copy_(conv_weights.view_as(conv_layer.weight.data))
        
         print(f"Loaded weights: {ptr} / {len(weights)} values used")
     

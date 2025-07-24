@@ -9,6 +9,7 @@ __pycache__/
 *.so
 
 yolov3.weights
+*.weights
 
 Bike_images/
 Bike_images1

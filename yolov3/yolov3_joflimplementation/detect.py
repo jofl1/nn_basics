@@ -7,7 +7,7 @@ from model import Darknet
 from utils import preprocess_image, non_max_suppression, draw_detections
 
 # COCO class names - 80 object categories
-COCO_CLASSES = [
+coco_classes = [
     'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck',
     'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench',
     'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra',
@@ -80,7 +80,7 @@ def detect_image(cfg_path, weights_path, img_path, output_path, conf_thres=0.5, 
         # Draw_detections modifies the image in-place
         # Move detections to CPU for drawing (OpenCV uses CPU)
         if class_names is None:
-            class_names = COCO_CLASSES
+            class_names = coco_classes
         result_img = draw_detections(original_img, detections.cpu(), class_names=class_names)
     else:
         result_img = original_img
@@ -105,6 +105,12 @@ if __name__ == "__main__":
     parser.add_argument('--num-classes', type=int, default=80, help='number of classes (80 for COCO, custom for your dataset)')
     opt = parser.parse_args()
 
+    # For single class bike detection
+    if opt.num_classes == 1:
+        custom_class_names = ['bike']
+    else:
+        custom_class_names = None
+        
     detections = detect_image(
         cfg_path=opt.cfg,
         weights_path=opt.weights,
@@ -112,7 +118,8 @@ if __name__ == "__main__":
         output_path=opt.output,
         conf_thres=opt.conf_thres,
         nms_thres=opt.nms_thres,
-        num_classes=opt.num_classes
+        num_classes=opt.num_classes,
+        class_names=custom_class_names
     )
 
     if detections is not None and len(detections) > 0:
@@ -120,8 +127,10 @@ if __name__ == "__main__":
         for det in detections:
             cls = int(det[6])
             conf = det[4]
-            if opt.num_classes == 80:
-                print(f"- {COCO_CLASSES[cls]}: {conf:.2f}")
+            if custom_class_names:
+                print(f"- {custom_class_names[cls]}: {conf:.2f}")
+            elif opt.num_classes == 80:
+                print(f"- {coco_classes[cls]}: {conf:.2f}")
             else:
                 print(f"- Class {cls}: {conf:.2f}")
 

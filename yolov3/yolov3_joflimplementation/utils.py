@@ -110,7 +110,7 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
             if len(keep) > 0:
                 output.extend(detections_class[keep])
            
-    return torch.stack(output) if output else torch.FloatTensor(0, 7)
+    return torch.stack(output) if output else torch.zeros((0, 7))
 
 def xywh2xyxy(x):
     """
@@ -175,12 +175,12 @@ def draw_detections(img, detections, img_size=416, class_names=None):
         if class_names:
             label = f'{class_names[int(cls)]}: {conf:.2f}'
             # Draw label above the bounding box
-            cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_DUPLEX, 0.5, 255)
+            cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_DUPLEX, 0.5, colour, 1)
         
     # Image is modified in-place
     return img
 
-def save_checkpoint(model, optimizer, filename="my_checkpoint.pth.tar", epoch=None):
+def save_checkpoint(model, optimizer, filename="my_checkpoint.pth", epoch=None):
     """Saves the model state."""
     print("=> Saving checkpoint")
     checkpoint = {
